@@ -298,6 +298,9 @@ function setFilter(groupe, skipSunburst = false) {
       _sunburstRender(_sunburstG, null, null, _sunburstSize / 2, true);
     }
   }
+  if (_sankeyBuilt && typeof buildSankey === 'function') {
+    buildSankey();
+  }
   currentPage = 1;
   applyTableFilters();
 }
@@ -313,6 +316,9 @@ function _applyDeputeFilterCharts(depute) {
   updateFilterBar();
   buildBarValeurGroupe('bar-valeur-groupe-wrap', fg);
   buildBarSocietesStacked('bar-societes-wrap');
+  if (_sankeyBuilt && typeof buildSankey === 'function') {
+    buildSankey();
+  }
   currentPage = 1;
   applyTableFilters();
 }
@@ -346,6 +352,9 @@ function clearFilter() {
     _sunburstZoomed = null;
     _sunburstRender(_sunburstG, null, null, _sunburstSize / 2, true);
   }
+  if (_sankeyBuilt && typeof buildSankey === 'function') {
+    buildSankey();
+  }
   currentPage = 1;
   applyTableFilters();
 }
@@ -358,14 +367,15 @@ function buildSunburstData() {
   const root = { name: 'root', children: [] };
   const groupMap = {};
   for (const d of allData) {
-    if (d.nbParts === 0) continue;
+    const filteredParts = filterParticipations(d.participations);
+    if (filteredParts.length === 0) continue;
     const g = d.groupe || 'Inconnu';
     if (!groupMap[g]) {
       groupMap[g] = { name: g, couleur: gColor(g), children: [] };
       root.children.push(groupMap[g]);
     }
     // Sociétés du député (hors non-publiées, top 12 par valeur)
-    const societes = d.participations
+    const societes = filteredParts
       .filter(p => !isNonPublic(p.societe) && (p.evaluation || 0) > 0)
       .sort((a, b) => b.evaluation - a.evaluation)
       .slice(0, 12)
@@ -376,14 +386,15 @@ function buildSunburstData() {
         couleur: gColor(g),
       }));
 
+    const filteredVal = filteredParts.reduce((s, p) => s + (p.evaluation || 0), 0);
     groupMap[g].children.push({
       name: `${d.prenom} ${d.nom}`,
       groupe: g,
       couleur: gColor(g),
       url: d.url,
-      value: Math.max(d.valeurTotale, 1000),
-      rawValue: d.valeurTotale,
-      nbParts: d.nbParts,
+      value: Math.max(filteredVal, 1000),
+      rawValue: filteredVal,
+      nbParts: filteredParts.length,
       children: societes.length ? societes : undefined,
     });
   }
@@ -1374,7 +1385,7 @@ function updateTableHead() {
       th.style.whiteSpace = 'nowrap';
       const sortKey_ = 'soc:' + norm;
       th.onclick = () => sortTable(sortKey_);
-      th.innerHTML = `<span style="color:#a8c8d8">📈</span> ${label} <span class="s-soc-sort" data-key="${sortKey_}"></span>`;
+      th.innerHTML = `${label} <span class="s-soc-sort" data-key="${sortKey_}"></span>`;
       tr.appendChild(th);
     });
   } else {
@@ -1588,10 +1599,15 @@ function toggleBourse() {
   _socList = null; // invalide le cache de la liste des sociétés
   const btn = document.getElementById('bourse-toggle-btn');
   if (btn) btn.classList.toggle('active', bouSeulFilter);
+  updateKpis();
   updateFilterBar();
   const fg = filteredForCharts();
   buildBarValeurGroupe('bar-valeur-groupe-wrap', fg);
   buildBarSocietesStacked('bar-societes-wrap');
+  buildSunburst();
+  if (_sankeyBuilt && typeof buildSankey === 'function') {
+    buildSankey();
+  }
   currentPage = 1;
   applyTableFilters();
 }
@@ -1601,7 +1617,7 @@ window.toggleBourse = toggleBourse;
 function toggleTheme() {
   const isLight = document.body.classList.toggle('light');
   const btn = document.getElementById('theme-toggle');
-  if (btn) btn.textContent = isLight ? '🌙 Mode sombre' : '☀️ Mode clair';
+  if (btn) btn.textContent = isLight ? 'Mode sombre' : 'Mode clair';
   try { localStorage.setItem('theme', isLight ? 'light' : 'dark'); } catch(e) {}
   // Re-render les graphiques D3 (couleurs texte SVG hardcodées)
   if (_sunburstHier && _sunburstG) {

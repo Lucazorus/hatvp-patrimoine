@@ -34,9 +34,9 @@ body.light {
   --surface3:    rgba(122,165,149,0.18);
   --border:      rgba(122,165,149,0.18);
   --border2:     rgba(122,165,149,0.32);
-  --text:        #2c3234;
-  --text-muted:  #5e7e78;
-  --text-dim:    rgba(57,62,65,0.42);
+  --text:        #1a2224;
+  --text-muted:  #354f4a;
+  --text-dim:    rgba(30,45,48,0.55);
   --accent:      #5a9080;
   --accent2:     #3d8a67;
   --accent-bg:   rgba(122,165,149,0.12);
@@ -108,17 +108,22 @@ header::after {
   gap: 8px;
 }
 
-.header-brand h1 .brand-icon {
-  font-size: 1rem;
-  opacity: 0.8;
-}
 
 .header-brand p {
-  font-size: 0.70rem;
-  color: var(--text-dim);
+  font-size: 0.78rem;
+  color: var(--text);
   margin-top: 3px;
   letter-spacing: 0.01em;
-  font-weight: 300;
+  font-weight: 400;
+  opacity: 0.85;
+}
+
+.header-brand p a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.header-brand p a:hover {
+  text-decoration: underline;
 }
 
 .header-right {
@@ -220,6 +225,10 @@ body.light #sticky-bar {
   color: var(--text-dim);
   font-style: italic;
   font-weight: 300;
+  display: none;
+}
+.bourse-toggle.active ~ .bourse-toggle-hint {
+  display: inline;
 }
 
 /* Barre filtres actifs */
@@ -631,6 +640,23 @@ body:not(.light) #tooltip {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-bg);
 }
+
+/* ── Sankey back button ───────────────────────────────────────────────────── */
+.sankey-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  margin-bottom: 10px;
+  font-size: 0.75rem;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border: 1px solid var(--border2);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.sankey-back-btn:hover { background: var(--surface3); }
 
 /* ── Sankey controls ──────────────────────────────────────────────────────── */
 .sankey-controls {
