@@ -20,6 +20,11 @@ DOSSIERS_BASE = "https://www.hatvp.fr/livraison/dossiers/"
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
+def norm_key(s):
+    """Normalise une chaîne pour la correspondance nom/prénom : minuscules, apostrophes uniformisées."""
+    s = re.sub(r"['\u2019\u2018\u02bc\u0060]", "'", s or "")
+    return s.lower().strip()
+
 def fetch(url, timeout=15):
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -92,16 +97,16 @@ def load_groupes():
                     # "Gérault Verny" → nom=Verny, prenom=Gérault
                     nom_an = parts[-1].upper()
                     prenom_an = ' '.join(parts[:-1])
-                    groupes_by_nom[f"{nom_an}_{prenom_an}".lower()] = entry
-                    groupes_by_nom[nom_an.lower()] = entry
+                    groupes_by_nom[norm_key(f"{nom_an}_{prenom_an}")] = entry
+                    groupes_by_nom[norm_key(nom_an)] = entry
                     # Also try multi-word last names: "Braun-Pivet" → BRAUN-PIVET
                     # "Agnès Firmin Le Bodo" → nom=FIRMIN LE BODO
                     for split_idx in range(1, len(parts)):
                         nom_part = ' '.join(parts[split_idx:]).upper()
                         prenom_part = ' '.join(parts[:split_idx])
-                        groupes_by_nom[f"{nom_part}_{prenom_part}".lower()] = entry
-                        groupes_by_nom[nom_part.lower()] = entry
-                groupes_by_nom[clean.lower()] = entry
+                        groupes_by_nom[norm_key(f"{nom_part}_{prenom_part}")] = entry
+                        groupes_by_nom[norm_key(nom_part)] = entry
+                groupes_by_nom[norm_key(clean)] = entry
             done += 1
             pct = int(done / len(pa_ids) * 100)
             progress(f"{done}/{len(pa_ids)} – {nom or pa_id} → {groupe}", pct)
@@ -208,10 +213,10 @@ def main():
             parts = fut.result()
             nom = dep["nom"].upper()
             prenom = dep["prenom"]
-            key_full = f"{nom}_{prenom}".lower()
-            key_nom = nom.lower()
+            key_full = norm_key(f"{nom}_{prenom}")
+            key_nom = norm_key(nom)
             # Also try "PRENOM NOM" style
-            key_full2 = f"{prenom}_{nom}".lower()
+            key_full2 = norm_key(f"{prenom}_{nom}")
             g = (groupes.get(key_full)
                  or groupes.get(key_full2)
                  or groupes.get(key_nom)
@@ -232,9 +237,18 @@ def main():
             pct = int(done / len(deputies) * 100)
             progress(f"{done}/{len(deputies)} – {nom} {prenom} ({len(parts)} participations)", pct)
 
+    json_str = json.dumps(results, ensure_ascii=False, separators=(",", ":"))
+
     progress("\nÉcriture de data.json...")
     with open("data.json", "w", encoding="utf-8") as f:
-        json.dump(results, f, ensure_ascii=False, indent=None, separators=(",", ":"))
+        f.write(json_str)
+
+    progress("\nÉcriture de data.js (bundle embarqué)...")
+    with open("data.js", "w", encoding="utf-8") as f:
+        f.write("/* AUTO-GENERATED — do not edit manually, run fetch_data.py instead */\n")
+        f.write("window.HATVP_DATA=")
+        f.write(json_str)
+        f.write(";\n")
 
     total_parts = sum(len(r["participations"]) for r in results)
     total_val = sum(p["evaluation"] for r in results for p in r["participations"])
@@ -243,7 +257,7 @@ def main():
     print(f"\n✓ {len(results)} députés · {total_parts} participations · {total_val/1e6:.1f}M€ total déclaré")
     print(f"✓ {avec} députés ont au moins une participation")
     print(f"✓ {inconnus} députés sans groupe identifié")
-    print("✓ data.json généré")
+    print("✓ data.json + data.js générés")
 
 if __name__ == "__main__":
     main()

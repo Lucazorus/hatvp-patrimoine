@@ -33,12 +33,11 @@ function buildSankey() {
   }
 
   // ── 2. Construire les liens bruts ─────────────────────────────────────────
-  // Source data : tous les députés avec participations
   const source = filterG
     ? allData.filter(d => (d.groupe || 'Inconnu') === filterG)
     : allData;
 
-  // On agrège d'abord par société pour trouver le top N
+  // Agrégat par société pour trouver le top N
   const socTotal = {};
   for (const d of source) {
     for (const p of d.participations) {
@@ -47,19 +46,20 @@ function buildSankey() {
       socTotal[key] = (socTotal[key] || 0) + p.evaluation;
     }
   }
+
+  // Top N (9999 = toutes)
+  const sorted = Object.entries(socTotal).sort((a, b) => b[1] - a[1]);
   const topSocSet = new Set(
-    Object.entries(socTotal)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, topN)
-      .map(([k]) => k)
+    (topN >= 9999 ? sorted : sorted.slice(0, topN)).map(([k]) => k)
   );
+
   if (!topSocSet.size) {
-    wrap.innerHTML = '<p style="color:#64748b;padding:20px">Aucune donnée avec ces filtres.</p>';
+    wrap.innerHTML = '<div class="empty-state">Aucune donnée avec ces filtres. Essayez de baisser la valeur minimale.</div>';
     return;
   }
 
   // ── 3. Nœuds & liens ─────────────────────────────────────────────────────
-  const nodeMap = {}; // id string → index
+  const nodeMap = {};
   const nodes   = [];
   const links   = [];
 
@@ -83,9 +83,9 @@ function buildSankey() {
       const key = p.societe.toUpperCase();
       if (!topSocSet.has(key)) continue;
 
-      const iG   = getNode('groupe',  g,        shortGroupe(g), gC,  { fullName: g });
+      const iG   = getNode('groupe',  g,        shortGroupe(g), gC, { fullName: g });
       const iDep = getNode('depute',  depName,  depName,        d3.color(gC)?.brighter(0.5) ?? gC, { url: d.url, groupe: g });
-      const iSoc = getNode('societe', key,      p.societe,      '#6366f1', { fullName: p.societe });
+      const iSoc = getNode('societe', key,      p.societe,      '#6fa8bf', { fullName: p.societe });
 
       // Lien groupe → député
       const lgd = links.findIndex(l => l.source === iG && l.target === iDep);
@@ -100,24 +100,24 @@ function buildSankey() {
   }
 
   if (!links.length) {
-    wrap.innerHTML = '<p style="color:#64748b;padding:20px">Aucun lien avec ces filtres.</p>';
+    wrap.innerHTML = '<div class="empty-state">Aucun lien avec ces filtres.</div>';
     return;
   }
 
   // ── 4. Layout Sankey ─────────────────────────────────────────────────────
   const W = Math.max(wrap.clientWidth || 900, 700);
-  const H = Math.max(nodes.length * 14, 500);
-  const margin = { top: 20, right: 180, bottom: 20, left: 160 };
+  // Hauteur dynamique selon le nombre de nœuds, avec un minimum raisonnable
+  const H = Math.max(nodes.length * 16, 500, 600);
+  const margin = { top: 28, right: 200, bottom: 20, left: 170 };
   const innerW = W - margin.left - margin.right;
   const innerH = H - margin.top - margin.bottom;
 
   const sankey = d3.sankey()
-    .nodeWidth(14)
-    .nodePadding(8)
+    .nodeWidth(12)
+    .nodePadding(topN >= 9999 ? 5 : 8)
     .extent([[0, 0], [innerW, innerH]])
     .nodeSort(null);
 
-  // d3-sankey modifie les objets en place
   const graph = sankey({
     nodes: nodes.map(n => ({ ...n })),
     links: links.map(l => ({ ...l })),
@@ -125,7 +125,8 @@ function buildSankey() {
 
   // ── 5. SVG ───────────────────────────────────────────────────────────────
   const svg = d3.select('#sankey-wrap').append('svg')
-    .attr('width', W).attr('height', H + margin.top + margin.bottom)
+    .attr('width', W)
+    .attr('height', H + margin.top + margin.bottom)
     .attr('viewBox', `0 0 ${W} ${H + margin.top + margin.bottom}`);
 
   const root = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
@@ -139,24 +140,22 @@ function buildSankey() {
     .attr('class', 'sankey-link')
     .attr('d', linkPath)
     .attr('stroke', d => {
-      // Couleur du groupe source (depth 0→1) ou du groupe parent (depth 1→2)
       const srcNode = d.source;
       if (srcNode.type === 'groupe') return srcNode.color;
       if (srcNode.type === 'depute') return gColor(srcNode.meta?.groupe || '');
-      return '#6366f1';
+      return '#6fa8bf';
     })
-    .attr('stroke-width', d => Math.max(1, d.width || 1))
-    .attr('opacity', 0.22)
+    .attr('stroke-width', d => Math.max(1.5, d.width || 1))
+    .attr('opacity', 0.18)
     .on('mouseover', function (event, d) {
-      d3.select(this).attr('opacity', 0.6);
+      d3.select(this).attr('opacity', 0.62);
       showTip(
-        `<strong>${d.source.name}</strong> → <strong>${d.target.name}</strong><br>
-         ${formatM(d.value)}`,
+        `<strong>${d.source.name}</strong> → <strong>${d.target.name}</strong><br>${formatM(d.value)}`,
         event
       );
     })
     .on('mousemove', moveTip)
-    .on('mouseleave', function () { d3.select(this).attr('opacity', 0.22); hideTip(); });
+    .on('mouseleave', function () { d3.select(this).attr('opacity', 0.18); hideTip(); });
 
   // ── 7. Nœuds ─────────────────────────────────────────────────────────────
   const nodeSel = root.append('g').selectAll('g')
@@ -169,9 +168,9 @@ function buildSankey() {
       const totalOut = d.sourceLinks?.reduce((s, l) => s + l.value, 0) || 0;
       const val = Math.max(totalIn, totalOut);
       let html = `<strong>${d.name}</strong>`;
-      if (d.type === 'groupe')  html += `<br>Groupe politique<br>Total : ${formatM(val)}`;
-      if (d.type === 'depute')  html += `<br>${d.meta?.groupe || ''}<br>Total : ${formatM(val)}`;
-      if (d.type === 'societe') html += `<br>Société<br>Total détenu : ${formatM(val)}`;
+      if (d.type === 'groupe')  html += `<br><span style="color:var(--text-dim)">Groupe politique</span><br>Total : <strong>${formatM(val)}</strong>`;
+      if (d.type === 'depute')  html += `<br><span style="color:var(--text-dim)">${d.meta?.groupe || ''}</span><br>Total : <strong>${formatM(val)}</strong>`;
+      if (d.type === 'societe') html += `<br><span style="color:var(--text-dim)">Société</span><br>Total détenu : <strong>${formatM(val)}</strong>`;
       showTip(html, event);
     })
     .on('mousemove', moveTip)
@@ -184,65 +183,98 @@ function buildSankey() {
   nodeSel.append('rect')
     .attr('x', d => d.x0)
     .attr('y', d => d.y0)
-    .attr('height', d => Math.max(1, d.y1 - d.y0))
+    .attr('height', d => Math.max(2, d.y1 - d.y0))
     .attr('width', d => d.x1 - d.x0)
     .attr('fill', d => d.color)
     .attr('rx', 3)
-    .attr('opacity', 0.9);
+    .attr('opacity', 0.92);
 
-  // Labels
+  // ── 8. Labels ────────────────────────────────────────────────────────────
+  const light = isLight();
+  const labelColor = light ? 'rgba(57,62,65,0.75)' : 'rgba(200,215,225,0.75)';
+  const labelColorDim = light ? 'rgba(57,62,65,0.45)' : 'rgba(200,215,225,0.40)';
+  const groupeLabelColor = light ? '#2c3234' : '#dde4ea';
+
   nodeSel.append('text')
     .attr('class', 'sankey-label')
-    .attr('x', d => d.x0 < innerW / 2 ? d.x1 + 6 : d.x0 - 6)
+    .attr('x', d => d.x0 < innerW / 2 ? d.x1 + 8 : d.x0 - 8)
     .attr('y', d => (d.y0 + d.y1) / 2)
     .attr('dy', '0.35em')
     .attr('text-anchor', d => d.x0 < innerW / 2 ? 'start' : 'end')
-    .text(d => {
-      const val = Math.max(
-        d.targetLinks?.reduce((s, l) => s + l.value, 0) || 0,
-        d.sourceLinks?.reduce((s, l) => s + l.value, 0) || 0
-      );
-      const label = d.name.length > 28 ? d.name.slice(0, 26) + '…' : d.name;
-      return `${label}  ${formatM(val)}`;
-    })
-    .style('font-size', d => d.type === 'depute' ? '9px' : '11px')
-    .style('fill', d => d.type === 'groupe' ? '#e8eaf0' : '#a5b4fc');
+    .each(function(d) {
+      const totalIn  = d.targetLinks?.reduce((s, l) => s + l.value, 0) || 0;
+      const totalOut = d.sourceLinks?.reduce((s, l) => s + l.value, 0) || 0;
+      const val = Math.max(totalIn, totalOut);
+      const label = d.name.length > 30 ? d.name.slice(0, 28) + '…' : d.name;
+      const valStr = formatM(val);
 
-  // Titres colonnes
+      // Tronquer le label si trop grand
+      const maxLabelLen = d.type === 'groupe' ? 20 : 26;
+      const shortLabel = label.length > maxLabelLen ? label.slice(0, maxLabelLen - 1) + '…' : label;
+
+      const el = d3.select(this);
+      el.style('font-size', d.type === 'groupe' ? '11px' : d.type === 'depute' ? '9px' : '10px')
+        .style('font-weight', d.type === 'groupe' ? '600' : '400')
+        .style('fill', d.type === 'groupe' ? groupeLabelColor : d.type === 'societe' ? labelColor : labelColorDim);
+
+      // Tspan nom
+      el.append('tspan').text(shortLabel);
+      // Tspan valeur (plus discret)
+      el.append('tspan')
+        .attr('dx', '4')
+        .style('fill', labelColorDim)
+        .style('font-size', '9px')
+        .style('font-weight', '300')
+        .text(valStr);
+    });
+
+  // ── 9. Titres colonnes ───────────────────────────────────────────────────
+  const colLabelColor = light ? 'rgba(57,62,65,0.35)' : 'rgba(180,200,215,0.4)';
   const colLabels = [
-    { text: 'GROUPE POLITIQUE', x: 0 },
-    { text: 'DÉPUTÉ', x: innerW / 2 },
-    { text: 'SOCIÉTÉ', x: innerW },
+    { text: 'GROUPE POLITIQUE', x: 0, anchor: 'start' },
+    { text: 'DÉPUTÉ',           x: innerW / 2, anchor: 'middle' },
+    { text: 'SOCIÉTÉ',          x: innerW, anchor: 'end' },
   ];
-  svg.append('g').attr('transform', `translate(${margin.left},8)`)
+  svg.append('g').attr('transform', `translate(${margin.left},10)`)
     .selectAll('text')
     .data(colLabels)
     .join('text')
     .attr('x', d => d.x)
     .attr('y', 0)
-    .attr('text-anchor', (d, i) => i === 0 ? 'start' : i === 2 ? 'end' : 'middle')
-    .style('fill', '#475569')
-    .style('font-size', '10px')
-    .style('font-weight', '700')
-    .style('letter-spacing', '0.08em')
+    .attr('text-anchor', d => d.anchor)
+    .style('fill', colLabelColor)
+    .style('font-size', '9px')
+    .style('font-weight', '600')
+    .style('letter-spacing', '0.10em')
+    .style('font-family', 'Inter, sans-serif')
     .text(d => d.text);
+
+  // ── 10. Ligne séparatrice ────────────────────────────────────────────────
+  [innerW / 2].forEach(x => {
+    root.append('line')
+      .attr('x1', x).attr('x2', x)
+      .attr('y1', 0).attr('y2', innerH)
+      .attr('stroke', light ? 'rgba(57,62,65,0.06)' : 'rgba(255,255,255,0.05)')
+      .attr('stroke-width', 1)
+      .attr('stroke-dasharray', '4,4');
+  });
 }
 
 function highlightSankey(linkSel, nodeSel, activeId) {
   if (!activeId) {
-    linkSel.attr('opacity', 0.22);
-    nodeSel.select('rect').attr('opacity', 0.9);
+    linkSel.transition().duration(200).attr('opacity', 0.18);
+    nodeSel.select('rect').transition().duration(200).attr('opacity', 0.92);
     return;
   }
-  // Trouver les liens connectés au nœud actif
-  linkSel.attr('opacity', d => {
+
+  linkSel.transition().duration(180).attr('opacity', d => {
     const sid = typeof d.source === 'object' ? d.source.id : d.source;
     const tid = typeof d.target === 'object' ? d.target.id : d.target;
-    return (sid === activeId || tid === activeId) ? 0.65 : 0.05;
+    return (sid === activeId || tid === activeId) ? 0.72 : 0.04;
   });
-  nodeSel.select('rect').attr('opacity', d => {
+
+  nodeSel.select('rect').transition().duration(180).attr('opacity', d => {
     if (d.id === activeId) return 1;
-    // Voisins
     const connected = d.sourceLinks?.some(l => {
       const tid = typeof l.target === 'object' ? l.target.id : l.target;
       return tid === activeId;
@@ -250,10 +282,8 @@ function highlightSankey(linkSel, nodeSel, activeId) {
       const sid = typeof l.source === 'object' ? l.source.id : l.source;
       return sid === activeId;
     });
-    return connected ? 0.85 : 0.2;
+    return connected ? 0.85 : 0.15;
   });
 }
 
-// Init : construire le Sankey si l'onglet est déjà actif au chargement
-// (normalement non, mais au cas où)
 window.buildSankey = buildSankey;

@@ -138,6 +138,42 @@ function shortGroupe(g) {
   return map[g] || g;
 }
 
+/* ── Helpers thème ───────────────────────────────────────────────────────── */
+function isLight() { return document.body.classList.contains('light'); }
+function themeText()    { return isLight() ? 'rgba(57,62,65,0.6)'  : 'rgba(255,255,255,0.6)'; }
+function themeTextDim() { return isLight() ? 'rgba(57,62,65,0.35)' : 'rgba(255,255,255,0.35)'; }
+function themeAxis()    { return isLight() ? 'rgba(57,62,65,0.08)' : 'rgba(255,255,255,0.08)'; }
+function themeAxisLine(){ return isLight() ? 'rgba(57,62,65,0.06)' : 'rgba(255,255,255,0.06)'; }
+function themeSvgLabel(){ return isLight() ? 'rgba(57,62,65,0.55)' : 'rgba(255,255,255,0.55)'; }
+
+/* ── KPIs dynamiques ─────────────────────────────────────────────────────── */
+function updateKpis() {
+  let base = allData;
+  if (activeDepute) base = allData.filter(d => d.url === activeDepute.url);
+  else if (activeGroupe) base = allData.filter(d => d.groupe === activeGroupe);
+
+  const nbDeputes = base.length;
+  const valeurs = base.map(d => filterParticipations(d.participations).reduce((s, p) => s + (p.evaluation || 0), 0));
+  const totalVal = valeurs.reduce((s, v) => s + v, 0);
+  const moyenne = nbDeputes > 0 ? totalVal / nbDeputes : 0;
+  // Médiane calculée uniquement sur les députés avec au moins une participation déclarée
+  const valeursAvecPart = valeurs.filter(v => v > 0);
+  const med = median(valeursAvecPart);
+
+  document.getElementById('stat-deputes').textContent = nbDeputes.toLocaleString('fr-FR');
+  document.getElementById('stat-valeur').textContent = formatEur(totalVal);
+  document.getElementById('stat-moyenne').textContent = formatEur(moyenne);
+  document.getElementById('stat-mediane').textContent = formatEur(med);
+
+  // Label du compteur adapté au filtre
+  const labelEl = document.getElementById('stat-deputes-label');
+  if (labelEl) {
+    labelEl.textContent = activeDepute ? 'Député sélectionné'
+      : activeGroupe ? `Députés — ${shortGroupe(activeGroupe)}`
+      : 'Députés avec DIA publiée';
+  }
+}
+
 /* ── Agrégation par groupe ───────────────────────────────────────────────── */
 function aggregateByGroupe(data) {
   const map = {};
@@ -240,58 +276,58 @@ function updateFilterBar() {
   }
 }
 
-function setFilter(groupe) {
+// skipSunburst=true quand l'appelant a déjà rendu le sunburst (clic direct sur l'arc)
+function setFilter(groupe, skipSunburst = false) {
   activeGroupe = groupe;
   activeDepute = null;
+  updateKpis();
   updateChartTitles();
   updateFilterBar();
   const fg = filteredForCharts();
   buildBarValeurGroupe('bar-valeur-groupe-wrap', fg);
-  buildBarMediane('bar-mediane-wrap', fg);
   buildBarSocietesStacked('bar-societes-wrap');
-  // Sunburst : drill-down si groupe sélectionné depuis un autre graphique
-  if (_sunburstHier && _sunburstG) {
-    if (groupe && (!_sunburstZoomed || _sunburstZoomed.data.name !== groupe)) {
+  if (!skipSunburst && _sunburstHier && _sunburstG) {
+    if (groupe) {
       const node = _sunburstHier.descendants().find(d => d.depth === 1 && d.data.name === groupe);
       if (node) {
-        _sunburstZoomed = node;
-        _sunburstRender(_sunburstG, _sunburstHier, node, _sunburstSize / 2, true);
+        _sunburstZoomed = { level: 1, groupeNode: node, deputeNode: null };
+        _sunburstRender(_sunburstG, node, null, _sunburstSize / 2, true);
       }
-    } else if (!groupe && _sunburstZoomed) {
-      _sunburstZoomed = null;
-      _sunburstRender(_sunburstG, _sunburstHier, null, _sunburstSize / 2, true);
     } else {
-      updateSunburstHighlight();
+      _sunburstZoomed = null;
+      _sunburstRender(_sunburstG, null, null, _sunburstSize / 2, true);
     }
   }
   currentPage = 1;
   applyTableFilters();
 }
 
-function setDeputeFilter(depute) {
+// Met à jour tous les graphiques/filtres pour un député, sans toucher au sunburst
+function _applyDeputeFilterCharts(depute) {
   activeDepute = depute;
   activeGroupe = null;
   const singleData = allData.filter(d => d.url === depute.url);
   const fg = aggregateByGroupe(singleData);
+  updateKpis();
   updateChartTitles();
   updateFilterBar();
   buildBarValeurGroupe('bar-valeur-groupe-wrap', fg);
-  buildBarMediane('bar-mediane-wrap', fg);
   buildBarSocietesStacked('bar-societes-wrap');
-  // Sunburst : drill-down sur le groupe du député si pas déjà fait
-  if (_sunburstHier && _sunburstG && depute.groupe) {
-    if (!_sunburstZoomed || _sunburstZoomed.data.name !== depute.groupe) {
-      const node = _sunburstHier.descendants().find(d => d.depth === 1 && d.data.name === depute.groupe);
-      if (node) {
-        _sunburstZoomed = node;
-        _sunburstRender(_sunburstG, _sunburstHier, node, _sunburstSize / 2, true);
-      }
-    } else {
-      updateSunburstHighlight();
-    }
-  }
   currentPage = 1;
   applyTableFilters();
+}
+
+function setDeputeFilter(depute) {
+  _applyDeputeFilterCharts(depute);
+  // Sunburst : drill jusqu'au député (niveau 2)
+  if (_sunburstHier && _sunburstG && depute.groupe) {
+    const groupeNode = _sunburstHier.descendants().find(d => d.depth === 1 && d.data.name === depute.groupe);
+    if (groupeNode) {
+      const deputeNode = groupeNode.children?.find(d => d.data.url === depute.url);
+      _sunburstZoomed = { level: 2, groupeNode, deputeNode: deputeNode || null };
+      _sunburstRender(_sunburstG, groupeNode, deputeNode || null, _sunburstSize / 2, true);
+    }
+  }
 }
 
 function clearFilter() {
@@ -299,25 +335,23 @@ function clearFilter() {
   activeDepute = null;
   activeSocietes = new Set();
   socPickerClearAll(false);
+  updateKpis();
   updateChartTitles();
   updateFilterBar();
   const fg = filteredForCharts();
   buildBarValeurGroupe('bar-valeur-groupe-wrap', fg);
-  buildBarMediane('bar-mediane-wrap', fg);
   buildBarSocietesStacked('bar-societes-wrap');
   // Sunburst : retour vue globale
-  if (_sunburstHier && _sunburstG && _sunburstZoomed) {
+  if (_sunburstHier && _sunburstG) {
     _sunburstZoomed = null;
-    _sunburstRender(_sunburstG, _sunburstHier, null, _sunburstSize / 2, true);
-  } else {
-    updateSunburstHighlight();
+    _sunburstRender(_sunburstG, null, null, _sunburstSize / 2, true);
   }
   currentPage = 1;
   applyTableFilters();
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   SUNBURST — 2 niveaux : Groupes → Députés
+   SUNBURST DATA
    ══════════════════════════════════════════════════════════════════════════ */
 
 function buildSunburstData() {
@@ -330,7 +364,18 @@ function buildSunburstData() {
       groupMap[g] = { name: g, couleur: gColor(g), children: [] };
       root.children.push(groupMap[g]);
     }
-    // Valeur du député = somme de ses participations (min 1000 pour la visibilité)
+    // Sociétés du député (hors non-publiées, top 12 par valeur)
+    const societes = d.participations
+      .filter(p => !isNonPublic(p.societe) && (p.evaluation || 0) > 0)
+      .sort((a, b) => b.evaluation - a.evaluation)
+      .slice(0, 12)
+      .map(p => ({
+        name: p.societe,
+        value: p.evaluation,
+        type: 'societe',
+        couleur: gColor(g),
+      }));
+
     groupMap[g].children.push({
       name: `${d.prenom} ${d.nom}`,
       groupe: g,
@@ -339,31 +384,34 @@ function buildSunburstData() {
       value: Math.max(d.valeurTotale, 1000),
       rawValue: d.valeurTotale,
       nbParts: d.nbParts,
+      children: societes.length ? societes : undefined,
     });
   }
   return root;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   SUNBURST — zoomable drill-down (groupes → 360° députés)
+   SUNBURST — zoomable drill-down 3 niveaux
+   Niveau 0 (root)   : vue globale  → anneau intérieur = groupes, extérieur = députés
+   Niveau 1 (groupe) : drill groupe → anneau intérieur = députés 360°, extérieur = sociétés
+   Niveau 2 (député) : drill député → anneau unique = sociétés 360°
    ══════════════════════════════════════════════════════════════════════════ */
 
-let _sunburstSvg = null;        // SVG persistent
-let _sunburstG   = null;        // groupe <g> centré
-let _sunburstHier = null;       // hiérarchie D3
-let _sunburstZoomed = null;     // nœud actuellement zoomé (null = racine)
-let _sunburstPaths = null;      // sélection paths (pour highlight)
-let _sunburstSize  = 0;
+let _sunburstSvg    = null;   // SVG persistent
+let _sunburstG      = null;   // <g> centré
+let _sunburstHier   = null;   // hiérarchie D3 complète
+let _sunburstZoomed = null;   // { level: 0|1|2, groupeNode, deputeNode }
+let _sunburstPaths  = null;   // paths courants (pour highlight)
+let _sunburstSize   = 0;
 
 function buildSunburst() {
   const wrap = document.getElementById('sunburst-wrap');
   if (!wrap) return;
   const W = wrap.clientWidth || 600;
-  const size = Math.min(W, 560);
+  const size = Math.min(W, 580);
   _sunburstSize = size;
   const radius = size / 2;
 
-  // Rebuild SVG from scratch
   d3.select('#sunburst-wrap').selectAll('*').remove();
   _sunburstZoomed = null;
 
@@ -377,266 +425,326 @@ function buildSunburst() {
   const g = svg.append('g').attr('transform', `translate(${radius},${radius})`);
   _sunburstG = g;
 
-  const root = buildSunburstData();
-  const hier = d3.hierarchy(root)
+  const hier = d3.hierarchy(buildSunburstData())
     .sum(d => d.value || 0)
     .sort((a, b) => b.value - a.value);
 
-  const partition = d3.partition().size([2 * Math.PI, radius]);
-  partition(hier);
+  // partition standard (utilisée seulement pour vue globale)
+  d3.partition().size([2 * Math.PI, radius])(hier);
   _sunburstHier = hier;
 
-  _sunburstRender(g, hier, null, radius, false);
+  _sunburstRender(g, null, null, radius, false);
 }
 
-function _sunburstRender(g, hier, zoomedNode, radius, animate) {
-  const INNER_R = radius * 0.22;   // trou central fixe
-  const OUTER_R = radius - 2;
+// ── Utilitaire : distribue les angles à 360° proportionnellement à la valeur ──
+function _spreadAngles(nodes, totalVal) {
+  let cum = 0;
+  return nodes.map(n => {
+    const span = ((n.value || 0) / (totalVal || 1)) * 2 * Math.PI;
+    const x0 = cum, x1 = cum + span;
+    cum = x1;
+    return { node: n, x0, x1 };
+  });
+}
 
-  // Calculer les arcs en fonction du nœud zoomé
-  // Si zoomedNode = null  → vue globale (2 anneaux : groupes + députés)
-  // Si zoomedNode = groupe → vue drill-down (1 anneau : députés à 360°)
-
-  let arcData, arcFn, colorFn;
-
-  if (!zoomedNode) {
-    // ── Vue globale ────────────────────────────────────────────────────────
-    const mid = radius * 0.58;
-    arcData = hier.descendants().filter(d => d.depth > 0);
-
-    arcFn = d3.arc()
-      .startAngle(d => d.x0)
-      .endAngle(d => d.x1)
-      .padAngle(d => Math.min((d.x1 - d.x0) / 2, 0.004))
-      .padRadius(mid)
-      .innerRadius(d => d.depth === 1 ? INNER_R : mid + 4)
-      .outerRadius(d => d.depth === 1 ? mid - 4 : OUTER_R);
-
-    colorFn = d => {
-      const base = d.data.couleur || gColor(d.data.groupe || d.data.name || '');
-      if (d.depth === 1) return base;
-      return d3.color(base)?.brighter(0.4) ?? base;
-    };
-  } else {
-    // ── Vue drill-down : les enfants du groupe zoomé à 360° ────────────────
-    const children = zoomedNode.children || [];
-    const totalVal = zoomedNode.value || 1;
-
-    // Recalculer les angles à 360° proportionnellement à la valeur
-    let cumAngle = 0;
-    arcData = children.map(child => {
-      const span = (child.value / totalVal) * 2 * Math.PI;
-      const x0 = cumAngle;
-      const x1 = cumAngle + span;
-      cumAngle = x1;
-      return { ...child, _x0: x0, _x1: x1 };
-    });
-
-    const PAD = 0.003;
-    arcFn = d => d3.arc()({
-      innerRadius: INNER_R,
-      outerRadius: OUTER_R,
-      startAngle: d._x0 + PAD,
-      endAngle:   d._x1 - PAD,
-    });
-
-    colorFn = d => {
-      const base = d.data.couleur || gColor(zoomedNode.data.name || '');
-      return d3.color(base)?.brighter(0.5) ?? base;
-    };
-  }
-
-  // ── Nettoyer et redessiner ─────────────────────────────────────────────
-  g.selectAll('.arc-path').remove();
-  g.selectAll('.arc-label').remove();
-  g.selectAll('.center-circle').remove();
-  g.selectAll('.center-text').remove();
-
-  // Paths
-  const paths = g.selectAll('.arc-path')
-    .data(arcData, d => (d.data?.url || d.data?.name || '') + (zoomedNode ? '_drill' : '_root'))
+// ── Dessine un anneau (liste de {node,x0,x1}, r1, r2, colorFn) ─────────────
+function _drawRing(g, slices, r1, r2, colorFn, onMouseover, onClick, cls) {
+  const PAD = 0.0025;
+  const paths = g.selectAll('.' + cls)
+    .data(slices, s => s.node.data.url || s.node.data.name)
     .join('path')
-    .attr('class', 'arc-path')
-    .attr('fill', colorFn)
+    .attr('class', 'arc-path ' + cls)
+    .attr('fill', s => colorFn(s))
     .attr('opacity', 0)
     .style('cursor', 'pointer')
-    .attr('d', zoomedNode
-      ? d => d3.arc()({ innerRadius: INNER_R, outerRadius: OUTER_R, startAngle: d._x0 + 0.003, endAngle: d._x0 + 0.003 })
-      : d => { try { return arcFn(d); } catch(e) { return ''; } }
-    );
+    .attr('d', s => {
+      const span = s.x1 - s.x0;
+      if (span < 0.001) return '';
+      return d3.arc()({
+        innerRadius: r1, outerRadius: r2,
+        startAngle: s.x0 + PAD, endAngle: Math.max(s.x1 - PAD, s.x0 + PAD + 0.0001),
+      });
+    });
 
-  // Transition entrée
-  if (animate) {
-    if (zoomedNode) {
-      // Arcs partent du centre et s'ouvrent
-      paths.transition().duration(500).ease(d3.easeCubicOut)
-        .attr('opacity', 0.88)
-        .attrTween('d', function(d) {
-          const iStart = d3.interpolate(d._x0 + 0.003, d._x0 + 0.003);
-          const iEnd   = d3.interpolate(d._x0 + 0.003, d._x1 - 0.003);
-          const iInner = d3.interpolate(INNER_R + (OUTER_R - INNER_R) * 0.5, INNER_R);
-          return t => d3.arc()({
-            innerRadius: iInner(t),
-            outerRadius: OUTER_R,
-            startAngle:  iStart(t),
-            endAngle:    Math.max(iEnd(t), iStart(t) + 0.001),
-          });
-        });
-    } else {
-      paths.transition().duration(400).ease(d3.easeCubicOut)
-        .attr('opacity', 0.88);
-    }
-  } else {
-    paths.attr('opacity', 0.88)
-      .attr('d', zoomedNode
-        ? d => d3.arc()({ innerRadius: INNER_R, outerRadius: OUTER_R, startAngle: d._x0 + 0.003, endAngle: d._x1 - 0.003 })
-        : d => { try { return arcFn(d); } catch(e) { return ''; } }
-      );
-  }
+  // Animation entrée
+  paths.transition().duration(450).ease(d3.easeCubicOut)
+    .attr('opacity', 0.88)
+    .attrTween('d', function(s) {
+      const iInner = d3.interpolate(r1 + (r2 - r1) * 0.55, r1);
+      const iEnd   = d3.interpolate(s.x0 + PAD, Math.max(s.x1 - PAD, s.x0 + PAD + 0.001));
+      return t => d3.arc()({
+        innerRadius: iInner(t), outerRadius: r2,
+        startAngle: s.x0 + PAD,
+        endAngle: Math.max(iEnd(t), s.x0 + PAD + 0.0001),
+      });
+    });
 
-  _sunburstPaths = paths;
-
-  // Événements
   paths
-    .on('mouseover', function (event, d) {
-      d3.select(this).attr('opacity', 1).attr('stroke', '#fff').attr('stroke-width', 1);
-      let html = '';
-      if (!zoomedNode && d.depth === 1) {
-        html = `<strong>${d.data.name}</strong><br>${d.children?.length ?? 0} député(s)<br>Valeur : ${formatEur(d.value)}`;
-      } else {
-        const node = zoomedNode ? d : d;
-        html = `<strong>${node.data.name}</strong><br>${node.data.groupe || ''}<br>${node.data.nbParts ?? ''} participation(s) · ${node.data.rawValue > 0 ? formatEur(node.data.rawValue) : 'valeur non précisée'}`;
-      }
-      showTip(html, event);
+    .on('mouseover', function(event, s) {
+      d3.select(this).attr('opacity', 1).attr('stroke', '#fff').attr('stroke-width', 0.8);
+      onMouseover(event, s);
     })
     .on('mousemove', moveTip)
-    .on('mouseleave', function () {
+    .on('mouseleave', function() {
       d3.select(this).attr('opacity', 0.88).attr('stroke', null);
       hideTip();
     })
-    .on('click', function (event, d) {
-      event.stopPropagation();
-      if (!zoomedNode) {
-        // Vue globale : clic sur groupe → drill-down
-        if (d.depth === 1) {
-          _sunburstZoomed = d;
-          _sunburstRender(_sunburstG, _sunburstHier, d, _sunburstSize / 2, true);
-          setFilter(d.data.name);
-        } else if (d.depth === 2 && d.data.url) {
-          setDeputeFilter({ url: d.data.url, prenom: d.data.name.split(' ')[0], nom: d.data.name.split(' ').slice(1).join(' '), groupe: d.data.groupe });
-        }
-      } else {
-        // Vue drill-down : clic sur député
-        if (d.data.url) {
-          setDeputeFilter({ url: d.data.url, prenom: d.data.name.split(' ')[0], nom: d.data.name.split(' ').slice(1).join(' '), groupe: d.data.groupe });
-        }
-      }
-    });
+    .on('click', function(event, s) { event.stopPropagation(); onClick(s); });
 
-  // ── Labels ────────────────────────────────────────────────────────────────
-  if (!zoomedNode) {
-    // Labels groupes (anneaux groupes uniquement, si assez large)
-    g.append('g').attr('class', 'arc-label').attr('pointer-events', 'none')
-      .selectAll('text')
-      .data(hier.descendants().filter(d => d.depth === 1 && (d.x1 - d.x0) > 0.12))
-      .join('text')
-      .attr('transform', d => {
-        const angle = (d.x0 + d.x1) / 2 * 180 / Math.PI - 90;
-        const mid = (INNER_R + radius * 0.56) / 2;
-        return `rotate(${angle}) translate(${mid},0) rotate(${angle > 90 ? 180 : 0})`;
-      })
-      .attr('text-anchor', 'middle').attr('dy', '0.35em')
-      .style('font-size', '9px').style('fill', '#fff').style('font-weight', '600')
-      .style('font-family', 'Inter, Arial, sans-serif')
-      .text(d => shortGroupe(d.data.name));
-  } else {
-    // Labels députés (si arc assez large)
-    const labelsData = arcData.filter(d => (d._x1 - d._x0) > 0.18);
-    g.append('g').attr('class', 'arc-label').attr('pointer-events', 'none')
-      .selectAll('text')
-      .data(labelsData)
-      .join('text')
-      .attr('transform', d => {
-        const angle = (d._x0 + d._x1) / 2 * 180 / Math.PI - 90;
-        const r = (INNER_R + OUTER_R) / 2;
-        return `rotate(${angle}) translate(${r},0) rotate(${angle > 90 ? 180 : 0})`;
-      })
-      .attr('text-anchor', 'middle').attr('dy', '0.35em')
-      .style('font-size', '9px').style('fill', '#fff').style('font-weight', '500')
-      .style('font-family', 'Inter, Arial, sans-serif')
-      .text(d => {
-        const parts = d.data.name.split(' ');
-        return parts[parts.length - 1]; // nom de famille
-      });
+  return paths;
+}
+
+// ── Labels sur un anneau ────────────────────────────────────────────────────
+function _drawLabels(g, slices, r1, r2, labelFn, minSpan, cls) {
+  const rMid = (r1 + r2) / 2;
+  g.append('g').attr('class', 'arc-label ' + cls).attr('pointer-events', 'none')
+    .selectAll('text')
+    .data(slices.filter(s => (s.x1 - s.x0) > minSpan))
+    .join('text')
+    .attr('transform', s => {
+      const angle = (s.x0 + s.x1) / 2 * 180 / Math.PI - 90;
+      return `rotate(${angle}) translate(${rMid},0) rotate(${angle > 90 ? 180 : 0})`;
+    })
+    .attr('text-anchor', 'middle').attr('dy', '0.35em')
+    .style('font-size', '9px').style('fill', '#fff').style('font-weight', '500')
+    .style('font-family', 'Inter, Arial, sans-serif').style('pointer-events', 'none')
+    .text(s => labelFn(s));
+}
+
+// ── Centre cliquable ────────────────────────────────────────────────────────
+function _drawCenter(g, r, label1, label2, label3, onClickFn) {
+  g.selectAll('.center-circle,.center-text').remove();
+  const circle = g.append('circle').attr('class', 'center-circle')
+    .attr('r', r - 2).attr('fill', 'var(--bg, #1a2327)')
+    .attr('stroke', 'rgba(255,255,255,0.08)').attr('stroke-width', 1)
+    .style('cursor', onClickFn ? 'pointer' : 'default');
+  if (onClickFn) {
+    circle.on('click', onClickFn)
+      .on('mouseover', function() { d3.select(this).attr('fill', 'rgba(255,255,255,0.05)'); })
+      .on('mouseleave', function() { d3.select(this).attr('fill', 'var(--bg, #1a2327)'); });
   }
-
-  // ── Cercle central ────────────────────────────────────────────────────────
-  const centerCircle = g.append('circle')
-    .attr('class', 'center-circle')
-    .attr('r', INNER_R - 2)
-    .attr('fill', '#1a2327')
-    .attr('stroke', 'rgba(255,255,255,0.08)')
-    .attr('stroke-width', 1)
-    .style('cursor', zoomedNode ? 'pointer' : 'default');
-
-  if (zoomedNode) {
-    // Clic centre → retour vue globale
-    centerCircle
-      .on('click', () => {
-        _sunburstZoomed = null;
-        _sunburstRender(_sunburstG, _sunburstHier, null, _sunburstSize / 2, true);
-        setFilter(null);
-      })
-      .on('mouseover', function () { d3.select(this).attr('fill', 'rgba(255,255,255,0.05)'); })
-      .on('mouseleave', function () { d3.select(this).attr('fill', '#1a2327'); });
-
-    // Texte centre : nom court du groupe + "← retour"
-    const abbr = shortGroupe(zoomedNode.data.name);
-    g.append('text').attr('class', 'center-text').attr('text-anchor', 'middle').attr('dy', '-0.7em')
-      .style('font-size', '14px').style('font-weight', '700').style('fill', '#e9eef4')
+  const texts = [
+    { t: label1, dy: label3 ? '-1.1em' : '-0.1em', size: '13px', weight: '700', color: isLight() ? '#393E41' : '#e9eef4' },
+    { t: label2, dy: '0.9em',  size: '9px',  weight: '400', color: isLight() ? 'rgba(57,62,65,0.45)' : 'rgba(255,255,255,0.35)' },
+    { t: label3, dy: '2.3em',  size: '9px',  weight: '400', color: isLight() ? '#7AA595' : 'rgba(113,156,175,0.8)' },
+  ];
+  texts.forEach(({ t, dy, size, weight, color }) => {
+    if (!t) return;
+    g.append('text').attr('class', 'center-text')
+      .attr('text-anchor', 'middle').attr('dy', dy)
+      .style('font-size', size).style('font-weight', weight).style('fill', color)
       .style('pointer-events', 'none').style('font-family', 'Inter, Arial, sans-serif')
-      .text(abbr);
-    g.append('text').attr('class', 'center-text').attr('text-anchor', 'middle').attr('dy', '0.6em')
-      .style('font-size', '9px').style('fill', 'rgba(255,255,255,0.35)')
-      .style('pointer-events', 'none').style('font-family', 'Inter, Arial, sans-serif')
-      .text(formatEur(zoomedNode.value));
-    g.append('text').attr('class', 'center-text').attr('text-anchor', 'middle').attr('dy', '2em')
-      .style('font-size', '9px').style('fill', 'rgba(113,156,175,0.7)')
-      .style('pointer-events', 'none').style('font-family', 'Inter, Arial, sans-serif')
-      .text('← retour');
+      .text(t);
+  });
+}
+
+// ── Render principal ────────────────────────────────────────────────────────
+function _sunburstRender(g, groupeNode, deputeNode, radius, _unused) {
+  const INNER_R  = radius * 0.21;
+  const OUTER_R  = radius - 2;
+
+  // Nettoyer
+  g.selectAll('.arc-path,.arc-label,.center-circle,.center-text').remove();
+  _sunburstPaths = null;
+
+  if (!groupeNode) {
+    // ════ VUE GLOBALE : anneau1=groupes, anneau2=députés ═════════════════
+    const MID_R = radius * 0.52;
+
+    // Anneau groupes (depth 1) — angles issus de la partition D3
+    const groupeSlices = _sunburstHier.children.map(n => ({ node: n, x0: n.x0, x1: n.x1 }));
+
+    const gPaths = _drawRing(g, groupeSlices, INNER_R, MID_R - 3,
+      s => s.node.data.couleur || gColor(s.node.data.name),
+      (event, s) => showTip(
+        `<strong>${s.node.data.name}</strong><br>${s.node.children?.length ?? 0} député(s) avec participation(s)<br>Valeur : ${formatEur(s.node.value)}`,
+        event),
+      s => { _sunburstZoomed = { level: 1, groupeNode: s.node, deputeNode: null }; _sunburstRender(g, s.node, null, radius, true); setFilter(s.node.data.name, true); },
+      'ring-groupe');
+
+    // Anneau députés (depth 2)
+    const deputeSlices = _sunburstHier.children.flatMap(gn =>
+      (gn.children || []).map(dn => ({ node: dn, x0: dn.x0, x1: dn.x1 }))
+    );
+    const dPaths = _drawRing(g, deputeSlices, MID_R + 1, OUTER_R,
+      s => {
+        const base = s.node.data.couleur || gColor(s.node.data.groupe || '');
+        return d3.color(base)?.brighter(0.45) ?? base;
+      },
+      (event, s) => showTip(
+        `<strong>${s.node.data.name}</strong><br>${s.node.data.groupe}<br>${s.node.data.nbParts} participation(s) · ${s.node.data.rawValue > 0 ? formatEur(s.node.data.rawValue) : 'valeur non précisée'}`,
+        event),
+      s => {
+        if (s.node.data.url) {
+          const d = s.node.data;
+          const parts = d.name.split(' ');
+          // Drill-down vers niveau groupe+député, puis filtre dashboard sans re-render sunburst
+          const gn = _sunburstHier.descendants().find(n => n.depth === 1 && n.data.name === d.groupe);
+          if (gn) {
+            _sunburstZoomed = { level: 2, groupeNode: gn, deputeNode: s.node };
+            _sunburstRender(g, gn, s.node, radius, true);
+          }
+          _applyDeputeFilterCharts({ url: d.url, prenom: parts[0], nom: parts.slice(1).join(' '), groupe: d.groupe });
+        }
+      },
+      'ring-depute');
+
+    _sunburstPaths = dPaths; // pour highlight
+
+    // Labels groupes
+    _drawLabels(g, groupeSlices, INNER_R, MID_R - 3,
+      s => shortGroupe(s.node.data.name), 0.14, 'lbl-groupe');
+
+    _drawCenter(g, INNER_R, 'Cliquez', 'un groupe', null, null);
+
+  } else if (!deputeNode) {
+    // ════ VUE GROUPE : anneau1=députés 360°, anneau2=sociétés ═══════════
+    const MID_R = radius * 0.56;
+
+    const totalGroupe = groupeNode.value || 1;
+    const depSlices = _spreadAngles(groupeNode.children || [], totalGroupe);
+
+    // Anneau députés
+    _drawRing(g, depSlices, INNER_R, MID_R - 3,
+      s => {
+        const base = s.node.data.couleur || gColor(groupeNode.data.name);
+        return d3.color(base)?.brighter(0.35) ?? base;
+      },
+      (event, s) => showTip(
+        `<strong>${s.node.data.name}</strong><br>${s.node.data.nbParts} participation(s) · ${s.node.data.rawValue > 0 ? formatEur(s.node.data.rawValue) : 'valeur non précisée'}<br><em style="color:rgba(113,156,175,0.8)">Cliquer pour voir les sociétés</em>`,
+        event),
+      s => {
+        _sunburstZoomed = { level: 2, groupeNode, deputeNode: s.node };
+        _sunburstRender(g, groupeNode, s.node, radius, true);
+        const d = s.node.data;
+        const parts = d.name.split(' ');
+        // Met à jour le dashboard sans re-render sunburst
+        _applyDeputeFilterCharts({ url: d.url, prenom: parts[0], nom: parts.slice(1).join(' '), groupe: d.groupe });
+      },
+      'ring-depute');
+
+    // Anneau sociétés (agrégé par société sur tout le groupe)
+    // On construit une map société→valeur totale sur tout le groupe
+    const socMap = {};
+    for (const dn of (groupeNode.children || [])) {
+      for (const sn of (dn.children || [])) {
+        const key = sn.data.name;
+        socMap[key] = (socMap[key] || 0) + (sn.data.value || 0);
+      }
+    }
+    const socNodes = Object.entries(socMap)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, value]) => ({ data: { name, value, type: 'societe', couleur: gColor(groupeNode.data.name) }, value }));
+
+    const totalSoc = socNodes.reduce((s, n) => s + n.value, 0) || 1;
+    const socSlices = _spreadAngles(socNodes, totalSoc);
+
+    _drawRing(g, socSlices, MID_R + 1, OUTER_R,
+      s => {
+        const base = gColor(groupeNode.data.name);
+        const idx = socNodes.indexOf(s.node);
+        return d3.color(base)?.brighter(0.15 + idx * 0.06) ?? base;
+      },
+      (event, s) => showTip(
+        `<strong>${s.node.data.name}</strong><br>${formatEur(s.node.data.value)}<br><em style="color:rgba(113,156,175,0.8)">Cliquer pour filtrer</em>`,
+        event),
+      s => selectSocieteFromChart(s.node.data.name),
+      'ring-soc');
+
+    // Labels députés
+    _drawLabels(g, depSlices, INNER_R, MID_R - 3,
+      s => s.node.data.name.split(' ').pop(), 0.2, 'lbl-dep');
+
+    // Labels sociétés (si assez large)
+    _drawLabels(g, socSlices, MID_R + 1, OUTER_R,
+      s => s.node.data.name.length > 14 ? s.node.data.name.slice(0, 12) + '…' : s.node.data.name,
+      0.22, 'lbl-soc');
+
+    _drawCenter(g, INNER_R,
+      shortGroupe(groupeNode.data.name),
+      formatEur(groupeNode.value),
+      '← retour',
+      () => { _sunburstZoomed = null; _sunburstRender(g, null, null, radius, true); setFilter(null, true); });
+
   } else {
-    g.append('text').attr('class', 'center-text').attr('text-anchor', 'middle').attr('dy', '-0.1em')
-      .style('font-size', '10px').style('fill', 'rgba(255,255,255,0.28)')
-      .style('pointer-events', 'none').style('font-family', 'Inter, Arial, sans-serif')
-      .text('Cliquez');
-    g.append('text').attr('class', 'center-text').attr('text-anchor', 'middle').attr('dy', '1.1em')
-      .style('font-size', '10px').style('fill', 'rgba(255,255,255,0.28)')
-      .style('pointer-events', 'none').style('font-family', 'Inter, Arial, sans-serif')
-      .text('un groupe');
+    // ════ VUE DÉPUTÉ : anneau1=député (360°), anneau2=ses sociétés ══════
+    const MID_R = radius * 0.52;
+
+    const socNodes = (deputeNode.children || []).map(n => ({ data: n.data, value: n.data.value || 0 }));
+    if (!socNodes.length) {
+      // Pas de sociétés publiques → retour vue groupe
+      _sunburstZoomed = { level: 1, groupeNode, deputeNode: null };
+      _sunburstRender(g, groupeNode, null, radius, true);
+      return;
+    }
+
+    const depColor = deputeNode.data.couleur || gColor(deputeNode.data.groupe || '');
+
+    // Anneau intérieur : le député en arc unique (360°)
+    const depSlice = [{ node: deputeNode, x0: 0, x1: 2 * Math.PI }];
+    _drawRing(g, depSlice, INNER_R, MID_R - 3,
+      () => d3.color(depColor)?.brighter(0.35) ?? depColor,
+      (event, s) => showTip(
+        `<strong>${s.node.data.name}</strong><br>${s.node.data.groupe}<br>` +
+        `${s.node.data.nbParts} participation(s) · ` +
+        `${s.node.data.rawValue > 0 ? formatEur(s.node.data.rawValue) : 'valeur non précisée'}`,
+        event),
+      () => {},
+      'ring-depute-single');
+
+    _drawLabels(g, depSlice, INNER_R, MID_R - 3,
+      s => s.node.data.name, 0.0, 'lbl-dep-single');
+
+    // Anneau extérieur : ses sociétés
+    const totalSoc = socNodes.reduce((s, n) => s + (n.data.value || 0), 0) || 1;
+    const socSlices = _spreadAngles(
+      socNodes.map(n => ({ ...n, value: n.data.value || 0 })),
+      totalSoc
+    );
+
+    _drawRing(g, socSlices, MID_R + 1, OUTER_R,
+      s => {
+        const bright = 0.3 + (socSlices.indexOf(s) / Math.max(socSlices.length - 1, 1)) * 0.6;
+        return d3.color(depColor)?.brighter(bright) ?? depColor;
+      },
+      (event, s) => showTip(
+        `<strong>${s.node.data.name}</strong><br>${formatEur(s.node.data.value)}<br><em style="color:rgba(113,156,175,0.8)">Cliquer pour filtrer</em>`,
+        event),
+      s => selectSocieteFromChart(s.node.data.name),
+      'ring-soc-dep');
+
+    _drawLabels(g, socSlices, MID_R + 1, OUTER_R,
+      s => s.node.data.name.length > 14 ? s.node.data.name.slice(0, 12) + '…' : s.node.data.name,
+      0.22, 'lbl-soc-dep');
+
+    _drawCenter(g, INNER_R,
+      shortGroupe(deputeNode.data.groupe),
+      formatEur(deputeNode.data.rawValue),
+      '← retour',
+      () => {
+        _sunburstZoomed = { level: 1, groupeNode, deputeNode: null };
+        _sunburstRender(g, groupeNode, null, radius, true);
+      });
   }
 }
 
 function updateSunburstHighlight() {
-  if (!_sunburstPaths) return;
-  if (_sunburstZoomed) {
-    // En mode drill-down : highlight le député actif
-    _sunburstPaths.attr('opacity', d => {
-      if (!activeDepute) return 0.88;
-      return d.data.url === activeDepute.url ? 1 : 0.22;
+  // Le highlight est géré à la volée dans _drawRing via opacity
+  // On re-rend si le zoom a changé
+  if (!_sunburstG || !_sunburstHier) return;
+  if (_sunburstZoomed) return; // en drill-down, pas de highlight global
+  // Vue globale : dégrade les groupes non-actifs
+  _sunburstG.selectAll('.ring-groupe')
+    .attr('opacity', s => {
+      if (!activeGroupe) return 0.88;
+      return s.node.data.name === activeGroupe ? 1 : 0.18;
     });
-    return;
-  }
-  _sunburstPaths.attr('opacity', d => {
-    if (activeDepute) {
-      if (d.depth === 2) return d.data.url === activeDepute.url ? 1 : 0.08;
-      if (d.depth === 1) return d.data.name === activeDepute.groupe ? 0.5 : 0.08;
-    }
-    if (activeGroupe) {
-      const dg = d.data.groupe || d.data.name;
-      return dg === activeGroupe ? 1 : 0.12;
-    }
-    return 0.88;
-  });
+  _sunburstG.selectAll('.ring-depute')
+    .attr('opacity', s => {
+      if (activeDepute) return s.node.data.url === activeDepute.url ? 1 : 0.08;
+      if (activeGroupe)  return s.node.data.groupe === activeGroupe ? 0.88 : 0.1;
+      return 0.88;
+    });
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -655,8 +763,9 @@ function buildBarValeurGroupe(wrapperId, byG) {
   // Marge gauche adaptée à la largeur du conteneur
   const leftMargin = Math.min(80, Math.floor(W * 0.32));
   const margin = { top: 8, right: 60, bottom: 10, left: leftMargin };
-  const rowH = 30;
-  const H = data.length * rowH + margin.top + margin.bottom;
+  // Hauteur calée sur le sunburst si disponible, sinon fallback sur le nb de groupes
+  const H = _sunburstSize > 0 ? _sunburstSize : data.length * 30 + margin.top + margin.bottom;
+  const rowH = (H - margin.top - margin.bottom) / Math.max(data.length, 1);
   const w = W - margin.left - margin.right;
   const h = H - margin.top - margin.bottom;
 
@@ -669,35 +778,59 @@ function buildBarValeurGroupe(wrapperId, byG) {
   // Axe Y — nom court (sigles)
   g.append('g').call(d3.axisLeft(y).tickSize(0).tickFormat(d => shortGroupe(d)))
     .selectAll('text')
-    .style('fill', 'rgba(255,255,255,0.6)').style('font-size', '11px').style('font-family', 'Inter, Arial, sans-serif')
-    .attr('dx', '-4');
+    .style('fill', themeText()).style('font-size', '11px').style('font-family', 'Inter, Arial, sans-serif')
+    .style('cursor', 'pointer')
+    .attr('dx', '-4')
+    .on('click', (event, d) => setFilter(activeGroupe === d ? null : d));
   g.select('.domain').remove();
+
+  // Zones de clic invisibles sur toute la marge gauche (pour les petites barres)
+  // Isolées dans un <g> dédié pour éviter les conflits avec le join des barres
+  g.append('g').selectAll('rect').data(data).join('rect')
+    .attr('class', 'label-hit')
+    .attr('x', -leftMargin)
+    .attr('y', d => y(d.groupe))
+    .attr('width', leftMargin)
+    .attr('height', y.bandwidth())
+    .attr('fill', 'transparent')
+    .style('cursor', 'pointer')
+    .on('mouseover', function(event, d) {
+      showTip(`<strong>${d.groupe}</strong><br>Valeur totale : ${formatM(d.valeur)}<br>${d.avecPart} député(s) avec participation(s)`, event);
+    })
+    .on('mousemove', moveTip)
+    .on('mouseleave', hideTip)
+    .on('click', (event, d) => setFilter(activeGroupe === d.groupe ? null : d.groupe));
 
   // Axe X (valeur adaptative)
   const xMax = d3.max(data, d => d.valeur) || 1;
   g.append('g').attr('transform', `translate(0,${h})`)
     .call(d3.axisBottom(x).ticks(5).tickFormat(axisFormatter(xMax)))
-    .selectAll('text').style('fill', 'rgba(255,255,255,0.35)').style('font-size', '10px').style('font-family', 'Inter, Arial, sans-serif');
-  g.selectAll('.tick line').attr('stroke', 'rgba(255,255,255,0.06)');
-  g.select('.domain').attr('stroke', 'rgba(255,255,255,0.08)');
+    .selectAll('text').style('fill', themeTextDim()).style('font-size', '10px').style('font-family', 'Inter, Arial, sans-serif');
+  g.selectAll('.tick line').attr('stroke', themeAxisLine());
+  g.select('.domain').attr('stroke', themeAxis());
 
-  // Barres
-  g.selectAll('rect').data(data).join('rect')
+  // Barres avec animation entrée — dans un <g> dédié pour éviter conflits avec label-hit
+  const barsG = g.append('g');
+  barsG.selectAll('rect').data(data).join('rect')
     .attr('y', d => y(d.groupe))
     .attr('x', 0)
     .attr('height', y.bandwidth())
-    .attr('width', d => x(d.valeur))
+    .attr('width', 0)
     .attr('fill', d => d.couleur)
     .attr('rx', 3)
-    .attr('opacity', d => (!activeGroupe || d.groupe === activeGroupe) ? 0.88 : 0.18)
+    .attr('opacity', d => (!activeGroupe || d.groupe === activeGroupe) ? 0.85 : 0.15)
     .style('cursor', 'pointer')
+    .transition().duration(500).ease(d3.easeCubicOut)
+    .attr('width', d => x(d.valeur));
+
+  barsG.selectAll('rect')
     .on('mouseover', function (event, d) {
       d3.select(this).attr('opacity', 1);
       showTip(`<strong>${d.groupe}</strong><br>Valeur totale : ${formatM(d.valeur)}<br>${d.avecPart} député(s) avec participation(s)`, event);
     })
     .on('mousemove', moveTip)
     .on('mouseleave', function (event, d) {
-      d3.select(this).attr('opacity', (!activeGroupe || d.groupe === activeGroupe) ? 0.88 : 0.18);
+      d3.select(this).attr('opacity', (!activeGroupe || d.groupe === activeGroupe) ? 0.85 : 0.15);
       hideTip();
     })
     .on('click', (event, d) => setFilter(activeGroupe === d.groupe ? null : d.groupe));
@@ -708,7 +841,7 @@ function buildBarValeurGroupe(wrapperId, byG) {
     .attr('x', d => x(d.valeur) + 4)
     .attr('y', d => y(d.groupe) + y.bandwidth() / 2)
     .attr('dy', '0.35em')
-    .style('fill', 'rgba(255,255,255,0.4)').style('font-size', '10px').style('font-family', 'Inter, Arial, sans-serif')
+    .style('fill', themeTextDim()).style('font-size', '10px').style('font-family', 'Inter, Arial, sans-serif')
     .text(d => formatM(d.valeur));
 }
 
@@ -792,27 +925,35 @@ function buildBarMediane(wrapperId, byG) {
   g.append('g').attr('transform', `translate(0,${h})`)
     .call(d3.axisBottom(x).tickFormat(shortGroupe))
     .selectAll('text').attr('transform', 'rotate(-35)').attr('text-anchor', 'end')
-    .style('fill', 'rgba(255,255,255,0.35)').style('font-size', '10px').style('font-family', 'Inter, Arial, sans-serif');
-  g.selectAll('.domain,.tick line').attr('stroke', 'rgba(255,255,255,0.08)');
+    .style('fill', themeTextDim()).style('font-size', '10px').style('font-family', 'Inter, Arial, sans-serif');
+  g.selectAll('.domain,.tick line').attr('stroke', themeAxis());
 
   g.append('g').call(d3.axisLeft(y).ticks(5).tickFormat(formatEur))
-    .selectAll('text').style('fill', 'rgba(255,255,255,0.35)').style('font-size', '10px').style('font-family', 'Inter, Arial, sans-serif');
-  g.select('.domain').attr('stroke', 'rgba(255,255,255,0.08)');
-  g.selectAll('.tick line').attr('stroke', 'rgba(255,255,255,0.06)');
+    .selectAll('text').style('fill', themeTextDim()).style('font-size', '10px').style('font-family', 'Inter, Arial, sans-serif');
+  g.select('.domain').attr('stroke', themeAxis());
+  g.selectAll('.tick line').attr('stroke', themeAxisLine());
 
   g.selectAll('rect').data(data).join('rect')
-    .attr('x', d => x(d.groupe)).attr('y', d => y(d.med))
-    .attr('width', x.bandwidth()).attr('height', d => h - y(d.med))
-    .attr('fill', d => d.couleur).attr('rx', 3)
-    .attr('opacity', d => (!activeGroupe || d.groupe === activeGroupe) ? 0.85 : 0.18)
+    .attr('x', d => x(d.groupe))
+    .attr('y', h)
+    .attr('width', x.bandwidth())
+    .attr('height', 0)
+    .attr('fill', d => d.couleur)
+    .attr('rx', 3)
+    .attr('opacity', d => (!activeGroupe || d.groupe === activeGroupe) ? 0.85 : 0.15)
     .style('cursor', 'pointer')
+    .transition().duration(520).ease(d3.easeCubicOut)
+    .attr('y', d => y(d.med))
+    .attr('height', d => h - y(d.med));
+
+  g.selectAll('rect')
     .on('mouseover', function (event, d) {
       d3.select(this).attr('opacity', 1);
       showTip(`<strong>${d.groupe}</strong><br>Médiane : ${formatEur(d.med)}<br>${d.avecPart} député(s) avec participation(s)`, event);
     })
     .on('mousemove', moveTip)
     .on('mouseleave', function (event, d) {
-      d3.select(this).attr('opacity', (!activeGroupe || d.groupe === activeGroupe) ? 0.85 : 0.18);
+      d3.select(this).attr('opacity', (!activeGroupe || d.groupe === activeGroupe) ? 0.85 : 0.15);
       hideTip();
     })
     .on('click', (event, d) => setFilter(activeGroupe === d.groupe ? null : d.groupe));
@@ -821,6 +962,20 @@ function buildBarMediane(wrapperId, byG) {
 /* ══════════════════════════════════════════════════════════════════════════
    BARRES EMPILÉES — Top 25 sociétés, valeur en M€ par groupe
    ══════════════════════════════════════════════════════════════════════════ */
+
+// Sélectionne une société depuis un clic sur le graphique (même logique que le picker)
+function selectSocieteFromChart(label) {
+  if (!_socList) _socList = getSocietyList();
+  const norm = normalizeSearch(label);
+  if (activeSocietes.has(norm)) {
+    activeSocietes.delete(norm);
+  } else {
+    activeSocietes.add(norm);
+  }
+  socPickerApply();
+  socPickerRenderTags();
+  socPickerRenderDropdown();
+}
 
 function buildBarSocietesStacked(wrapperId) {
   const wrap = document.getElementById(wrapperId);
@@ -882,16 +1037,16 @@ function buildBarSocietesStacked(wrapperId) {
 
   // Axe Y
   g.append('g').call(d3.axisLeft(y).tickSize(0))
-    .selectAll('text').style('fill', 'rgba(255,255,255,0.6)').style('font-size', '11px').style('font-family', 'Inter, Arial, sans-serif').attr('dx', '-4');
+    .selectAll('text').style('fill', themeText()).style('font-size', '11px').style('font-family', 'Inter, Arial, sans-serif').attr('dx', '-4');
   g.select('.domain').remove();
 
   // Axe X (valeur adaptative)
   const xMax = d3.max(topSoc, s => s.totalValeur) || 1;
   g.append('g').attr('transform', `translate(0,${h})`)
     .call(d3.axisBottom(x).ticks(6).tickFormat(axisFormatter(xMax)))
-    .selectAll('text').style('fill', 'rgba(255,255,255,0.35)').style('font-size', '10px').style('font-family', 'Inter, Arial, sans-serif');
-  g.selectAll('.tick line').attr('stroke', 'rgba(255,255,255,0.06)');
-  g.select('.domain').attr('stroke', 'rgba(255,255,255,0.08)');
+    .selectAll('text').style('fill', themeTextDim()).style('font-size', '10px').style('font-family', 'Inter, Arial, sans-serif');
+  g.selectAll('.tick line').attr('stroke', themeAxisLine());
+  g.select('.domain').attr('stroke', themeAxis());
 
   if (activeGroupe && !activeDepute) {
     // ── Mode groupe : barre simple couleur du groupe ───────────────────────
@@ -900,29 +1055,34 @@ function buildBarSocietesStacked(wrapperId) {
       .attr('y', d => y(d.label))
       .attr('x', 0)
       .attr('height', y.bandwidth())
-      .attr('width', d => x(d.totalValeur))
+      .attr('width', 0)
       .attr('fill', color)
       .attr('rx', 3)
-      .attr('opacity', 0.88)
+      .attr('opacity', 0.85)
+      .style('cursor', 'pointer')
+      .transition().duration(480).ease(d3.easeCubicOut)
+      .attr('width', d => x(d.totalValeur));
+
+    g.selectAll('rect')
       .on('mouseover', function (event, d) {
         d3.select(this).attr('opacity', 1);
         showTip(
           `<strong>${d.label}</strong><br>
-           <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:4px"></span>${activeGroupe}<br>
-           ${formatM(d.totalValeur)}`,
+           <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${color};margin-right:4px;vertical-align:middle"></span>${activeGroupe}<br>
+           <strong>${formatM(d.totalValeur)}</strong>`,
           event
         );
       })
       .on('mousemove', moveTip)
-      .on('mouseleave', function () { d3.select(this).attr('opacity', 0.88); hideTip(); })
-      .on('click', () => clearFilter());
+      .on('mouseleave', function () { d3.select(this).attr('opacity', 0.85); hideTip(); })
+      .on('click', (event, d) => selectSocieteFromChart(d.label));
 
     g.selectAll('.soc-total').data(topSoc).join('text')
       .attr('class', 'soc-total')
       .attr('x', d => x(d.totalValeur) + 5)
       .attr('y', d => y(d.label) + y.bandwidth() / 2)
       .attr('dy', '0.35em')
-      .style('fill', 'rgba(255,255,255,0.35)').style('font-size', '10px').style('font-family', 'Inter, Arial, sans-serif')
+      .style('fill', themeTextDim()).style('font-size', '10px').style('font-family', 'Inter, Arial, sans-serif')
       .text(d => formatM(d.totalValeur));
 
   } else {
@@ -949,22 +1109,28 @@ function buildBarSocietesStacked(wrapperId) {
       .attr('y', d => y(d.data.societe))
       .attr('x', d => x(d[0]))
       .attr('height', y.bandwidth())
-      .attr('width', d => Math.max(0, x(d[1]) - x(d[0])))
+      .attr('width', 0)
       .attr('rx', 2)
-      .attr('opacity', 0.88)
+      .attr('opacity', 0.85)
+      .style('cursor', 'pointer')
+      .transition().duration(480).ease(d3.easeCubicOut)
+      .attr('width', d => Math.max(0, x(d[1]) - x(d[0])));
+
+    g.selectAll('g g rect')
       .on('mouseover', function (event, d) {
         d3.select(this).attr('opacity', 1);
         const val = d[1] - d[0];
+        const c = gColor(d.key);
         showTip(
           `<strong>${d.data.societe}</strong><br>
-           <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${gColor(d.key)};margin-right:4px"></span>${d.key}<br>
-           ${formatM(val)} · total société : ${formatM(d.data.totalValeur)}`,
+           <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${c};margin-right:4px;vertical-align:middle"></span>${d.key}<br>
+           <strong>${formatM(val)}</strong> · total : ${formatM(d.data.totalValeur)}`,
           event
         );
       })
       .on('mousemove', moveTip)
-      .on('mouseleave', function () { d3.select(this).attr('opacity', 0.88); hideTip(); })
-      .on('click', (event, d) => setFilter(d.key));
+      .on('mouseleave', function () { d3.select(this).attr('opacity', 0.85); hideTip(); })
+      .on('click', (event, d) => selectSocieteFromChart(d.data.societe));
 
     // Labels valeur totale
     g.selectAll('.soc-total').data(topSoc).join('text')
@@ -972,7 +1138,7 @@ function buildBarSocietesStacked(wrapperId) {
       .attr('x', d => x(d.totalValeur) + 5)
       .attr('y', d => y(d.label) + y.bandwidth() / 2)
       .attr('dy', '0.35em')
-      .style('fill', 'rgba(255,255,255,0.35)').style('font-size', '10px').style('font-family', 'Inter, Arial, sans-serif')
+      .style('fill', themeTextDim()).style('font-size', '10px').style('font-family', 'Inter, Arial, sans-serif')
       .text(d => formatM(d.totalValeur));
 
     // Légende groupes (en haut)
@@ -984,7 +1150,7 @@ function buildBarSocietesStacked(wrapperId) {
       legendG.append('rect').attr('x', lx).attr('y', 0).attr('width', 8).attr('height', 8)
         .attr('rx', 2).attr('fill', gColor(gr)).attr('opacity', 0.85);
       legendG.append('text').attr('x', lx + 11).attr('y', 7.5)
-        .style('fill', 'rgba(255,255,255,0.45)').style('font-size', '9px').style('font-family', 'Inter, Arial, sans-serif').text(shortGroupe(gr));
+        .style('fill', themeTextDim()).style('font-size', '9px').style('font-family', 'Inter, Arial, sans-serif').text(shortGroupe(gr));
       lx += lw;
     }
   }
@@ -1036,6 +1202,16 @@ let _socList = null; // cache
 
 function socPickerApply() {
   currentPage = 1;
+  // Auto-tri : si une société est sélectionnée, trier par sa valeur desc
+  if (activeSocietes.size > 0) {
+    const firstNorm = [...activeSocietes][0];
+    sortKey = 'soc:' + firstNorm;
+    sortDir = -1;
+  } else {
+    // Retour au tri par défaut quand on efface
+    sortKey = 'valeurTotale';
+    sortDir = -1;
+  }
   buildBarSocietesStacked('bar-societes-wrap');
   updateChartTitles();
   applyTableFilters();
@@ -1068,7 +1244,7 @@ function socPickerRenderDropdown() {
       li.className = 'soc-picker-item' + (activeSocietes.has(s.norm) ? ' selected' : '');
       li.innerHTML = `<input type="checkbox" ${activeSocietes.has(s.norm) ? 'checked' : ''}>
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis">${s.label}</span>
-        <span style="color:rgba(255,255,255,0.3);font-size:0.68rem;margin-left:6px">${formatM(s.total)}</span>`;
+        <span style="color:var(--text-dim);font-size:0.68rem;margin-left:6px">${formatM(s.total)}</span>`;
       li.addEventListener('mousedown', e => {
         e.preventDefault(); // évite que l'input perde le focus
         if (activeSocietes.has(s.norm)) activeSocietes.delete(s.norm);
@@ -1245,10 +1421,7 @@ function renderTable(filtered) {
     const isActive = activeDepute && activeDepute.url === d.url;
     const tr = document.createElement('tr');
     tr.style.cursor = 'pointer';
-    if (isActive) {
-      tr.style.background = 'rgba(113,156,175,0.10)';
-      tr.style.outline = '1px solid rgba(113,156,175,0.35)';
-    }
+    if (isActive) tr.classList.add('row-active');
     tr.title = isActive ? 'Cliquer pour enlever le filtre' : 'Cliquer pour filtrer sur ce député';
     tr.addEventListener('click', (e) => {
       if (e.target.tagName === 'A') return;
@@ -1260,18 +1433,23 @@ function renderTable(filtered) {
     });
 
     // Colonnes fixes
+    const accentLink = isLight() ? 'var(--accent)' : '#a5b4fc';
     tr.innerHTML = `
       <td>
-        <a href="https://www.hatvp.fr${d.url}" target="_blank" rel="noopener"
-           style="color:#a5b4fc;text-decoration:none;font-weight:500">${d.prenom} ${d.nom}</a>
-        <div style="font-size:0.7rem;color:#475569;margin-top:2px">${d.qualite || ''}</div>
+        <div class="dep-name">
+          <a href="https://www.hatvp.fr${d.url}" target="_blank" rel="noopener"
+             style="color:${accentLink};text-decoration:none">${d.prenom} ${d.nom}</a>
+        </div>
+        ${d.qualite ? `<div class="dep-quality">${d.qualite}</div>` : ''}
       </td>
       <td style="white-space:nowrap">
-        <span class="group-dot" style="background:${color}"></span>${d.groupe || '—'}
+        <span class="group-badge" style="border-color:${color}22">
+          <span class="group-dot" style="background:${color}"></span>${d.groupe || '—'}
+        </span>
       </td>
-      <td>${d.departement || '—'}</td>
-      <td><strong style="color:${d.nbParts > 0 ? '#a5b4fc' : '#475569'}">${d.nbParts}</strong></td>
-      <td class="amount">${d.valeurTotale > 0 ? formatEur(d.valeurTotale) : '—'}</td>`;
+      <td style="color:var(--text-muted);font-size:0.73rem">${d.departement || '—'}</td>
+      <td><strong style="color:${d.nbParts > 0 ? 'var(--accent)' : 'var(--text-dim)'}">${d.nbParts}</strong></td>
+      <td class="amount">${d.valeurTotale > 0 ? formatEur(d.valeurTotale) : '<span style="color:var(--text-dim)">—</span>'}</td>`;
 
     if (socCols.length > 0) {
       // Colonnes dynamiques : valeur par société sélectionnée
@@ -1282,9 +1460,9 @@ function renderTable(filtered) {
           .filter(p => normalizeSearch(p.societe).includes(norm))
           .reduce((s, p) => s + (p.evaluation || 0), 0);
         if (val > 0) {
-          td.innerHTML = `<strong style="color:#6faf96">${formatEur(val)}</strong>`;
+          td.innerHTML = `<strong style="color:var(--accent2)">${formatEur(val)}</strong>`;
         } else {
-          td.innerHTML = `<span style="color:#475569">—</span>`;
+          td.innerHTML = `<span style="color:var(--text-dim)">—</span>`;
         }
         tr.appendChild(td);
       });
@@ -1331,13 +1509,10 @@ function renderTable(filtered) {
    INIT
    ══════════════════════════════════════════════════════════════════════════ */
 
-async function main() {
-  document.getElementById('status').textContent = 'Chargement des données...';
-  let raw;
-  try {
-    raw = await fetch('./data.json').then(r => r.json());
-  } catch (e) {
-    document.getElementById('status').textContent = 'Erreur : ' + e.message;
+function main() {
+  const raw = window.HATVP_DATA;
+  if (!raw || !raw.length) {
+    document.getElementById('status').textContent = 'Erreur : données introuvables (data.js manquant ?)';
     return;
   }
 
@@ -1351,36 +1526,50 @@ async function main() {
 
   buildColorMap(allData);
 
-  const totalParts = allData.reduce((s, d) => s + d.nbParts, 0);
-  const totalVal   = allData.reduce((s, d) => s + d.valeurTotale, 0);
-  const avecPart   = allData.filter(d => d.nbParts > 0).length;
-  const publicSoc  = new Set(allData.flatMap(d => d.participations.map(p => p.societe).filter(s => !isNonPublic(s))));
-  document.getElementById('stat-deputes').textContent = allData.length;
-  document.getElementById('stat-avec').textContent = avecPart;
-  document.getElementById('stat-participations').textContent = totalParts.toLocaleString('fr-FR');
-  document.getElementById('stat-valeur').textContent = formatEur(totalVal);
-  document.getElementById('stat-societes').textContent = publicSoc.size;
-
-  const byG = aggregateByGroupe(allData);
-  buildSunburst();
-  buildBarValeurGroupe('bar-valeur-groupe-wrap', byG);
-  buildBarMediane('bar-mediane-wrap', byG);
-  buildBarSocietesStacked('bar-societes-wrap');
-
-  sortTable('valeurTotale');
+  const avecPart = allData.filter(d => d.nbParts > 0).length;
+  updateKpis();
 
   document.getElementById('status').textContent =
     `${allData.length} députés · ${avecPart} avec participations · données HATVP`;
 
+  const byG = aggregateByGroupe(allData);
+  buildSunburst();
+  buildBarValeurGroupe('bar-valeur-groupe-wrap', byG);
+  buildBarSocietesStacked('bar-societes-wrap');
+
+  sortTable('valeurTotale');
+
+  let _lastSunburstWidth = 0;
   const rebuild = debounce(() => {
-    buildSunburst();
+    // Ne rebuilder le sunburst que si la largeur a vraiment changé (pas juste la hauteur)
+    // Évite de reset le drill-down quand la filter-bar apparaît/disparaît
+    const wrap = document.getElementById('sunburst-wrap');
+    const newW = wrap ? wrap.clientWidth : 0;
+    if (Math.abs(newW - _lastSunburstWidth) > 10) {
+      _lastSunburstWidth = newW;
+      // Sauvegarder l'état du zoom avant rebuild
+      const savedZoom = _sunburstZoomed;
+      buildSunburst();
+      // Restaurer le zoom après rebuild
+      if (savedZoom && _sunburstG && _sunburstHier) {
+        if (savedZoom.level === 1 && savedZoom.groupeNode) {
+          const gn = _sunburstHier.descendants().find(d => d.depth === 1 && d.data.name === savedZoom.groupeNode.data.name);
+          if (gn) { _sunburstZoomed = { level: 1, groupeNode: gn, deputeNode: null }; _sunburstRender(_sunburstG, gn, null, _sunburstSize / 2, false); }
+        } else if (savedZoom.level === 2 && savedZoom.groupeNode && savedZoom.deputeNode) {
+          const gn = _sunburstHier.descendants().find(d => d.depth === 1 && d.data.name === savedZoom.groupeNode.data.name);
+          const dn = gn?.children?.find(d => d.data.url === savedZoom.deputeNode.data.url);
+          if (gn && dn) { _sunburstZoomed = { level: 2, groupeNode: gn, deputeNode: dn }; _sunburstRender(_sunburstG, gn, dn, _sunburstSize / 2, false); }
+        }
+      }
+    }
     const fg = filteredForCharts();
     buildBarValeurGroupe('bar-valeur-groupe-wrap', fg);
-    buildBarMediane('bar-mediane-wrap', fg);
     buildBarSocietesStacked('bar-societes-wrap');
   }, 200);
 
-  new ResizeObserver(rebuild).observe(document.querySelector('main'));
+  const mainEl = document.querySelector('main');
+  _lastSunburstWidth = document.getElementById('sunburst-wrap')?.clientWidth || 0;
+  new ResizeObserver(rebuild).observe(mainEl);
 }
 
 document.getElementById('search').addEventListener('input', () => { currentPage = 1; applyTableFilters(); });
@@ -1402,12 +1591,30 @@ function toggleBourse() {
   updateFilterBar();
   const fg = filteredForCharts();
   buildBarValeurGroupe('bar-valeur-groupe-wrap', fg);
-  buildBarMediane('bar-mediane-wrap', fg);
   buildBarSocietesStacked('bar-societes-wrap');
   currentPage = 1;
   applyTableFilters();
 }
 window.toggleBourse = toggleBourse;
+
+/* ── Toggle thème clair / sombre ────────────────────────────────────────── */
+function toggleTheme() {
+  const isLight = document.body.classList.toggle('light');
+  const btn = document.getElementById('theme-toggle');
+  if (btn) btn.textContent = isLight ? '🌙 Mode sombre' : '☀️ Mode clair';
+  try { localStorage.setItem('theme', isLight ? 'light' : 'dark'); } catch(e) {}
+  // Re-render les graphiques D3 (couleurs texte SVG hardcodées)
+  if (_sunburstHier && _sunburstG) {
+    const z = _sunburstZoomed;
+    _sunburstRender(_sunburstG, z?.groupeNode ?? null, z?.deputeNode ?? null, _sunburstSize / 2, false);
+  }
+  const fg = filteredForCharts();
+  buildBarValeurGroupe('bar-valeur-groupe-wrap', fg);
+  buildBarSocietesStacked('bar-societes-wrap');
+  // Re-render Sankey si construit
+  if (_sankeyBuilt) buildSankey();
+}
+window.toggleTheme = toggleTheme;
 
 /* ── Onglets ─────────────────────────────────────────────────────────────── */
 let _sankeyBuilt = false;
@@ -1423,5 +1630,14 @@ function switchTab(id, btn) {
   }
 }
 window.switchTab = switchTab;
+
+// Restaurer le thème sauvegardé
+try {
+  if (localStorage.getItem('theme') === 'light') {
+    document.body.classList.add('light');
+    const btn = document.getElementById('theme-toggle');
+    if (btn) btn.textContent = '🌙 Mode sombre';
+  }
+} catch(e) {}
 
 main();

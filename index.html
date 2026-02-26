@@ -22,21 +22,27 @@
   <meta name="twitter:description" content="Visualisation interactive des intérêts financiers déclarés par les 547 députés français — données HATVP open data.">
 
   <!-- Styles -->
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=2">
 
   <!-- D3.js + Sankey plugin -->
   <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/d3-sankey@0.12.3/dist/d3-sankey.min.js"></script>
 
+  <!-- Données embarquées (générées par fetch_data.py) -->
+  <script src="data.js"></script>
+
 </head>
 <body>
 
 <header>
-  <div>
-    <h1>🏛 Participations financières des députés</h1>
-    <p>Données HATVP · Déclarations d'intérêts (DIA) · 17ème législature · Groupes : assemblee-nationale.fr</p>
+  <div class="header-brand">
+    <h1><span class="brand-icon">🏛</span> Open Mandats</h1>
+    <p>Participations financières et intérêts déclarés par les 547 députés de la 17ème législature · Source : HATVP open data (DIA) · Groupes : assemblee-nationale.fr</p>
   </div>
-  <div id="status" aria-live="polite">Chargement...</div>
+  <div class="header-right">
+    <div id="status" aria-live="polite">Chargement...</div>
+    <button id="theme-toggle" onclick="toggleTheme()" title="Basculer mode clair / sombre">☀️ Mode clair</button>
+  </div>
 </header>
 
 <!-- Barre sticky : toggle bourse + filtres actifs -->
@@ -69,28 +75,24 @@
   <div class="stats-row">
     <div class="stat-card">
       <div class="value" id="stat-deputes">—</div>
-      <div class="label">Députés avec DIA publiée</div>
-    </div>
-    <div class="stat-card">
-      <div class="value" id="stat-avec">—</div>
-      <div class="label">Avec au moins 1 participation</div>
-    </div>
-    <div class="stat-card">
-      <div class="value" id="stat-participations">—</div>
-      <div class="label">Participations déclarées</div>
+      <div class="label" id="stat-deputes-label">Députés avec DIA publiée</div>
     </div>
     <div class="stat-card">
       <div class="value" id="stat-valeur">—</div>
       <div class="label">Valeur totale déclarée</div>
     </div>
     <div class="stat-card">
-      <div class="value" id="stat-societes">—</div>
-      <div class="label">Sociétés distinctes (publiques)</div>
+      <div class="value" id="stat-moyenne">—</div>
+      <div class="label">Valeur moyenne déclarée</div>
+    </div>
+    <div class="stat-card">
+      <div class="value" id="stat-mediane">—</div>
+      <div class="label">Valeur médiane déclarée</div>
     </div>
   </div>
 
   <!-- Ligne 1 : grille 12 colonnes — bar valeur (3) + sunburst (9) -->
-  <div class="grid-12" style="margin-bottom:20px">
+  <div class="grid-12" style="margin-bottom:14px">
 
     <div class="chart-card col-3">
       <h2 id="title-valeur-groupe">Valeur totale par groupe (M€)</h2>
@@ -100,7 +102,7 @@
     <div class="chart-card col-9">
       <h2>
         Explorer : Groupes → Députés
-        <small style="color:#475569;font-weight:400">(cliquez pour filtrer)</small>
+        <small>(cliquez pour filtrer)</small>
       </h2>
       <div class="chart-wrap" id="sunburst-wrap" role="img" aria-label="Sunburst interactif : groupes politiques et députés"></div>
     </div>
@@ -110,14 +112,9 @@
   <!-- Graphiques secondaires -->
   <div class="charts-grid">
 
-    <div class="chart-card">
-      <h2 id="title-mediane">Valeur médiane des participations par groupe (€)</h2>
-      <div class="chart-wrap" id="bar-mediane-wrap"></div>
-    </div>
-
     <div class="chart-card full">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px">
-        <h2 id="title-societes" style="margin:0;flex:1">Sociétés les plus détenues — valeur en M€ par groupe politique</h2>
+        <h2 id="title-societes" style="margin:0;flex:1;border:none;padding:0">Sociétés — valeur en M€ par groupe politique</h2>
         <div id="societes-picker" class="soc-picker">
           <div class="soc-picker-input-row">
             <input type="text" id="search-societes" class="search-input soc-picker-input"
@@ -132,7 +129,8 @@
           <div class="soc-picker-tags" id="soc-picker-tags"></div>
         </div>
       </div>
-      <div class="chart-wrap" id="bar-societes-wrap" style="max-height:520px;overflow-y:auto;overflow-x:hidden"></div>
+      <div style="height:1px;background:var(--border);margin-bottom:16px"></div>
+      <div class="chart-wrap" id="bar-societes-wrap" style="max-height:560px;overflow-y:auto;overflow-x:hidden"></div>
     </div>
 
   </div>
@@ -151,9 +149,8 @@
             <th onclick="sortTable('nom')">Député <span id="s-nom"></span></th>
             <th onclick="sortTable('groupe')">Groupe <span id="s-groupe"></span></th>
             <th onclick="sortTable('departement')">Dép. <span id="s-departement"></span></th>
-            <th onclick="sortTable('nbParts')">Nb participations <span id="s-nbParts"></span></th>
+            <th onclick="sortTable('nbParts')">Participations <span id="s-nbParts"></span></th>
             <th onclick="sortTable('valeurTotale')">Valeur totale <span id="s-valeurTotale"></span></th>
-            <th>Principales sociétés</th>
           </tr>
         </thead>
         <tbody id="table-body"></tbody>
@@ -164,7 +161,7 @@
       Sources :
       <a href="https://www.hatvp.fr/consulter-les-declarations/#open-data" target="_blank" rel="noopener">HATVP open data</a> ·
       <a href="https://www.assemblee-nationale.fr" target="_blank" rel="noopener">assemblee-nationale.fr</a> ·
-      Uniquement les DIA publiées · "Données non publiées" = sociétés anonymisées par la HATVP (SCI, GFA, etc.)
+      Uniquement les DIA publiées · "Données non publiées" = sociétés anonymisées par la HATVP
     </p>
   </div>
 
@@ -175,14 +172,15 @@
     <div class="chart-card full">
       <h2>
         Flux financiers : Groupes → Députés → Sociétés
-        <small style="color:#475569;font-weight:400">(en M€ · cliquez sur un nœud pour filtrer)</small>
+        <small>(en M€ · cliquez sur un nœud pour filtrer)</small>
       </h2>
       <div class="sankey-controls">
         <label>Top sociétés :
           <select id="sankey-top-n" onchange="rebuildSankey()">
             <option value="15">Top 15</option>
             <option value="25" selected>Top 25</option>
-            <option value="40">Top 40</option>
+            <option value="50">Top 50</option>
+            <option value="9999">Toutes</option>
           </select>
         </label>
         <label>Valeur min. par lien :
@@ -191,6 +189,7 @@
             <option value="100000">≥ 100k€</option>
             <option value="500000" selected>≥ 500k€</option>
             <option value="1000000">≥ 1M€</option>
+            <option value="5000000">≥ 5M€</option>
           </select>
         </label>
         <label>Groupe :
