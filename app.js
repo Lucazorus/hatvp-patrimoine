@@ -89,6 +89,7 @@ let allData = [];
 let activeGroupe = null;
 let activeDepute = null; // filtre sur un député précis (url = clé unique)
 let activeSocietes = new Set(); // Set de noms normalisés de sociétés sélectionnées (multi-sélection)
+let excludedGroupes = new Set(); // Set de groupes politiques exclus des graphiques
 let sortKey = 'valeurTotale', sortDir = -1;
 let currentPage = 1;
 const PAGE_SIZE = 30;
@@ -118,22 +119,22 @@ function buildColorMap(data) {
 }
 function gColor(g) { return groupColorMap[g] || groupeColor(g, ''); }
 
-/* ── Noms courts ─────────────────────────────────────────────────────────── */
+/* ── Noms lisibles (sans acronymes) ──────────────────────────────────────── */
 function shortGroupe(g) {
   const map = {
-    'Rassemblement National': 'RN',
-    'Ensemble pour la République': 'EPR',
-    'La France insoumise - Nouveau Front Populaire': 'LFI-NFP',
-    'Socialistes et apparentés': 'SOC',
-    'Droite Républicaine': 'DR',
-    'Écologiste et Social': 'ECO',
-    'Les Démocrates': 'DEM',
-    'Horizons & Indépendants': 'HOR',
-    'Libertés, Indépendants, Outre-mer et Territoires': 'LIOT',
-    'Gauche Démocrate et Républicaine': 'GDR',
-    'Union des droites pour la République': 'UDR',
-    'Non inscrit': 'NI',
-    'Inconnu': '?',
+    'Rassemblement National':                          'Rassemblement National',
+    'Ensemble pour la République':                     'Ensemble',
+    'La France insoumise - Nouveau Front Populaire':   'La France Insoumise',
+    'Socialistes et apparentés':                       'Socialistes',
+    'Droite Républicaine':                             'Droite Républicaine',
+    'Écologiste et Social':                            'Écologiste et Social',
+    'Les Démocrates':                                  'Les Démocrates',
+    'Horizons & Indépendants':                         'Horizons',
+    'Libertés, Indépendants, Outre-mer et Territoires':'Libertés Outre-mer',
+    'Gauche Démocrate et Républicaine':                'Gauche Démocrate',
+    'Union des droites pour la République':            'Union des droites',
+    'Non inscrit':                                     'Non inscrit',
+    'Inconnu':                                         'Inconnu',
   };
   return map[g] || g;
 }
@@ -151,6 +152,7 @@ function updateKpis() {
   let base = allData;
   if (activeDepute) base = allData.filter(d => d.url === activeDepute.url);
   else if (activeGroupe) base = allData.filter(d => d.groupe === activeGroupe);
+  else if (excludedGroupes.size > 0) base = allData.filter(d => !excludedGroupes.has(d.groupe));
 
   const nbDeputes = base.length;
   const valeurs = base.map(d => filterParticipations(d.participations).reduce((s, p) => s + (p.evaluation || 0), 0));
@@ -195,6 +197,7 @@ function filteredForCharts() {
   let base = allData;
   if (activeDepute) base = allData.filter(d => d.url === activeDepute.url);
   else if (activeGroupe) base = allData.filter(d => d.groupe === activeGroupe);
+  else if (excludedGroupes.size > 0) base = allData.filter(d => !excludedGroupes.has(d.groupe));
   return aggregateByGroupe(base);
 }
 
@@ -276,10 +279,70 @@ function updateFilterBar() {
   }
 }
 
+/* ── Boutons partis ─────────────────────────────────────────────────────── */
+function buildGroupeBtns() {
+  const bar = document.getElementById('groupe-btns-bar');
+  if (!bar) return;
+  bar.innerHTML = '';
+
+  // Groupes triés par valeur totale décroissante, avec couleur
+  const byG = aggregateByGroupe(allData).sort((a, b) => b.valeur - a.valeur);
+
+  for (const g of byG) {
+    const clr = g.couleur || gColor(g.groupe);
+    const btn = document.createElement('button');
+    btn.className = 'groupe-btn';
+    btn.dataset.groupe = g.groupe;
+    btn.title = g.groupe; // tooltip avec nom complet
+    btn.textContent = shortGroupe(g.groupe);
+    // Couleur inline
+    btn.style.setProperty('--gbtn-color', clr);
+    btn.addEventListener('click', () => toggleExcludeGroupe(g.groupe));
+    bar.appendChild(btn);
+  }
+}
+
+function updateGroupeBtns() {
+  document.querySelectorAll('.groupe-btn').forEach(btn => {
+    btn.classList.toggle('excluded', excludedGroupes.has(btn.dataset.groupe));
+  });
+}
+
+function toggleExcludeGroupe(groupe) {
+  // Réinitialiser le filtre député/groupe mono si actif
+  activeGroupe = null;
+  activeDepute = null;
+
+  if (excludedGroupes.has(groupe)) {
+    excludedGroupes.delete(groupe);
+  } else {
+    excludedGroupes.add(groupe);
+  }
+  updateGroupeBtns();
+  updateKpis();
+  updateChartTitles();
+  updateFilterBar();
+  const fg = filteredForCharts();
+  buildBarValeurGroupe('bar-valeur-groupe-wrap', fg);
+  buildBarSocietesStacked('bar-societes-wrap');
+  buildSunburst();
+  if (_sankeyBuilt && typeof buildSankey === 'function') buildSankey();
+  currentPage = 1;
+  applyTableFilters();
+}
+
 // skipSunburst=true quand l'appelant a déjà rendu le sunburst (clic direct sur l'arc)
 function setFilter(groupe, skipSunburst = false) {
   activeGroupe = groupe;
   activeDepute = null;
+  // Synchroniser les boutons partis : si filtre solo → griser tous les autres
+  if (groupe) {
+    const allGroupes = [...new Set(allData.map(d => d.groupe).filter(Boolean))];
+    excludedGroupes = new Set(allGroupes.filter(g => g !== groupe));
+  } else {
+    excludedGroupes = new Set();
+  }
+  updateGroupeBtns();
   updateKpis();
   updateChartTitles();
   updateFilterBar();
@@ -340,6 +403,8 @@ function clearFilter() {
   activeGroupe = null;
   activeDepute = null;
   activeSocietes = new Set();
+  excludedGroupes = new Set();
+  updateGroupeBtns();
   socPickerClearAll(false);
   updateKpis();
   updateChartTitles();
@@ -367,6 +432,10 @@ function buildSunburstData() {
   const root = { name: 'root', children: [] };
   const groupMap = {};
   for (const d of allData) {
+    // Respecter les groupes exclus (et le filtre groupe unique actif)
+    const g0 = d.groupe || 'Inconnu';
+    if (excludedGroupes.size > 0 && excludedGroupes.has(g0)) continue;
+    if (activeGroupe && g0 !== activeGroupe) continue;
     const filteredParts = filterParticipations(d.participations);
     if (filteredParts.length === 0) continue;
     const g = d.groupe || 'Inconnu';
@@ -387,12 +456,21 @@ function buildSunburstData() {
       }));
 
     const filteredVal = filteredParts.reduce((s, p) => s + (p.evaluation || 0), 0);
+
+    // Pour éviter le double-comptage avec d3.hierarchy.sum() :
+    // si le député a des enfants (sociétés), sa propre valeur = filteredVal - somme des sociétés
+    // afin que sum() reconstitue exactement filteredVal sans doublon.
+    const socSum = societes.reduce((s, p) => s + (p.value || 0), 0);
+    const selfValue = societes.length
+      ? Math.max(filteredVal - socSum, 0)   // reste non représenté en enfants
+      : Math.max(filteredVal, 1000);         // feuille : valeur minimale pour la visibilité
+
     groupMap[g].children.push({
       name: `${d.prenom} ${d.nom}`,
       groupe: g,
       couleur: gColor(g),
       url: d.url,
-      value: Math.max(filteredVal, 1000),
+      value: selfValue,
       rawValue: filteredVal,
       nbParts: filteredParts.length,
       children: societes.length ? societes : undefined,
@@ -573,14 +651,31 @@ function _sunburstRender(g, groupeNode, deputeNode, radius, _unused) {
       s => { _sunburstZoomed = { level: 1, groupeNode: s.node, deputeNode: null }; _sunburstRender(g, s.node, null, radius, true); setFilter(s.node.data.name, true); },
       'ring-groupe');
 
-    // Anneau députés (depth 2)
+    // Anneau députés (depth 2) — dégradé par rang de richesse dans le groupe
     const deputeSlices = _sunburstHier.children.flatMap(gn =>
       (gn.children || []).map(dn => ({ node: dn, x0: dn.x0, x1: dn.x1 }))
     );
+    // Calcul du rang de chaque député au sein de son groupe (trié par valeur décroissante)
+    const _depRankMap = {};
+    for (const gn of _sunburstHier.children) {
+      const sorted = (gn.children || []).slice().sort((a, b) => b.value - a.value);
+      sorted.forEach((dn, i) => {
+        _depRankMap[dn.data.url || dn.data.name] = { rank: i, total: sorted.length };
+      });
+    }
+    deputeSlices.forEach(s => {
+      const info = _depRankMap[s.node.data.url || s.node.data.name] || { rank: 0, total: 1 };
+      s._rank = info.rank;
+      s._total = info.total;
+    });
     const dPaths = _drawRing(g, deputeSlices, MID_R + 1, OUTER_R,
       s => {
         const base = s.node.data.couleur || gColor(s.node.data.groupe || '');
-        return d3.color(base)?.brighter(0.45) ?? base;
+        const t = s._total > 1 ? s._rank / (s._total - 1) : 0;
+        const c = d3.color(base);
+        if (!c) return base;
+        // rang 0 (le plus riche) garde la couleur du groupe ; les suivants s'éclaircissent progressivement
+        return t < 0.01 ? c.toString() : c.brighter(t * 1.2).toString();
       },
       (event, s) => showTip(
         `<strong>${s.node.data.name}</strong><br>${s.node.data.groupe}<br>${s.node.data.nbParts} participation(s) · ${s.node.data.rawValue > 0 ? formatEur(s.node.data.rawValue) : 'valeur non précisée'}`,
@@ -615,11 +710,17 @@ function _sunburstRender(g, groupeNode, deputeNode, radius, _unused) {
     const totalGroupe = groupeNode.value || 1;
     const depSlices = _spreadAngles(groupeNode.children || [], totalGroupe);
 
+    // Dégradé de richesse : rang 0 = couleur du groupe, rangs suivants s'éclaircissent
+    depSlices.forEach((s, i) => { s._rank = i; s._total = depSlices.length; });
+
     // Anneau députés
     _drawRing(g, depSlices, INNER_R, MID_R - 3,
       s => {
         const base = s.node.data.couleur || gColor(groupeNode.data.name);
-        return d3.color(base)?.brighter(0.35) ?? base;
+        const t = s._total > 1 ? s._rank / (s._total - 1) : 0;
+        const c = d3.color(base);
+        if (!c) return base;
+        return t < 0.01 ? c.toString() : c.brighter(t * 1.0).toString();
       },
       (event, s) => showTip(
         `<strong>${s.node.data.name}</strong><br>${s.node.data.nbParts} participation(s) · ${s.node.data.rawValue > 0 ? formatEur(s.node.data.rawValue) : 'valeur non précisée'}<br><em style="color:rgba(113,156,175,0.8)">Cliquer pour voir les sociétés</em>`,
@@ -767,12 +868,12 @@ function buildBarValeurGroupe(wrapperId, byG) {
   if (!wrap) return;
   wrap.innerHTML = '';
 
-  // Tri décroissant par valeur
-  const data = [...byG].sort((a, b) => b.valeur - a.valeur);
+  // Tri décroissant par valeur — exclut les groupes sans valeur déclarée
+  const data = [...byG].filter(d => d.valeur > 0).sort((a, b) => b.valeur - a.valeur);
 
   const W = wrap.clientWidth || 300;
-  // Marge gauche adaptée à la largeur du conteneur
-  const leftMargin = Math.min(80, Math.floor(W * 0.32));
+  // Marge gauche adaptée aux noms complets de groupes (~20 chars max)
+  const leftMargin = Math.min(155, Math.floor(W * 0.48));
   const margin = { top: 8, right: 60, bottom: 10, left: leftMargin };
   // Hauteur calée sur le sunburst si disponible, sinon fallback sur le nb de groupes
   const H = _sunburstSize > 0 ? _sunburstSize : data.length * 30 + margin.top + margin.bottom;
@@ -786,10 +887,10 @@ function buildBarValeurGroupe(wrapperId, byG) {
   const y = d3.scaleBand().domain(data.map(d => d.groupe)).range([0, h]).padding(0.25);
   const x = d3.scaleLinear().domain([0, d3.max(data, d => d.valeur)]).range([0, w]).nice();
 
-  // Axe Y — nom court (sigles)
+  // Axe Y — nom lisible du groupe
   g.append('g').call(d3.axisLeft(y).tickSize(0).tickFormat(d => shortGroupe(d)))
     .selectAll('text')
-    .style('fill', themeText()).style('font-size', '11px').style('font-family', 'Inter, Arial, sans-serif')
+    .style('fill', themeText()).style('font-size', '10px').style('font-family', 'Inter, Arial, sans-serif')
     .style('cursor', 'pointer')
     .attr('dx', '-4')
     .on('click', (event, d) => setFilter(activeGroupe === d ? null : d));
@@ -1156,7 +1257,7 @@ function buildBarSocietesStacked(wrapperId) {
     const legendG = svg.append('g').attr('transform', `translate(${margin.left}, 4)`);
     let lx = 0;
     for (const gr of activeGroupes) {
-      const lw = shortGroupe(gr).length * 7 + 20;
+      const lw = shortGroupe(gr).length * 6 + 16;
       if (lx + lw > w) break;
       legendG.append('rect').attr('x', lx).attr('y', 0).attr('width', 8).attr('height', 8)
         .attr('rx', 2).attr('fill', gColor(gr)).attr('opacity', 0.85);
@@ -1175,7 +1276,9 @@ function applyTableFilters() {
   const q = document.getElementById('search').value.toLowerCase().trim();
   const filtered = allData.filter(d => {
     const parts = filterParticipations(d.participations);
-    const matchG = !activeGroupe || d.groupe === activeGroupe;
+    const matchG = activeGroupe ? d.groupe === activeGroupe
+      : excludedGroupes.size > 0 ? !excludedGroupes.has(d.groupe)
+      : true;
     const matchD = !activeDepute || d.url === activeDepute.url;
     const matchQ = !q
       || d.nom.toLowerCase().includes(q)
@@ -1535,7 +1638,14 @@ function main() {
     valeurTotale: d.participations.reduce((s, p) => s + (p.evaluation || 0), 0),
   }));
 
+  // Correctifs manuels — députés non reconnus par le scraping AN (apostrophes Unicode, etc.)
+  const _GROUPE_OVERRIDES = {
+    '/pages_nominatives/d-intorni-christelle-20430': 'Union des droites pour la République',
+  };
+  allData.forEach(d => { if (_GROUPE_OVERRIDES[d.url]) d.groupe = _GROUPE_OVERRIDES[d.url]; });
+
   buildColorMap(allData);
+  buildGroupeBtns();
 
   const avecPart = allData.filter(d => d.nbParts > 0).length;
   updateKpis();

@@ -225,10 +225,67 @@ body.light #sticky-bar {
   color: var(--text-dim);
   font-style: italic;
   font-weight: 300;
-  display: none;
+  display: inline;
+  opacity: 0.55;
+  transition: opacity 0.2s;
 }
 .bourse-toggle.active ~ .bourse-toggle-hint {
-  display: inline;
+  opacity: 1;
+  color: var(--accent);
+}
+
+/* ── Boutons partis ───────────────────────────────────────────────────────── */
+#groupe-btns-bar {
+  display: flex;
+  flex-wrap: nowrap;          /* une seule ligne */
+  overflow-x: auto;           /* scroll horizontal si besoin (< 1440px) */
+  overflow-y: hidden;
+  gap: 4px;
+  padding: 5px 40px;
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: none;      /* masque la scrollbar (esthétique) */
+}
+#groupe-btns-bar::-webkit-scrollbar { display: none; }
+
+@media (max-width: 900px) {
+  #groupe-btns-bar { padding: 5px 14px; }
+}
+
+.groupe-btn {
+  background: color-mix(in srgb, var(--gbtn-color, #6fa8bf) 12%, transparent);
+  border: 1.5px solid var(--gbtn-color, #6fa8bf);
+  border-radius: 20px;
+  color: var(--gbtn-color, #6fa8bf);
+  font-size: 0.60rem;         /* compact pour tenir sur une ligne */
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  padding: 2px 9px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  white-space: nowrap;
+  letter-spacing: 0;          /* pas d'espacement supplémentaire */
+  line-height: 1.5;
+  flex-shrink: 0;             /* ne pas compresser les boutons */
+}
+
+.groupe-btn:hover {
+  filter: brightness(1.18);
+  background: color-mix(in srgb, var(--gbtn-color, #6fa8bf) 22%, transparent);
+}
+
+.groupe-btn.excluded {
+  background: var(--surface);
+  border-color: var(--border2);
+  color: var(--text-dim);
+  opacity: 0.4;
+  text-decoration: line-through;
+  filter: none;
+}
+
+.groupe-btn.excluded:hover {
+  opacity: 0.7;
+  background: var(--surface2);
+  text-decoration: none;
 }
 
 /* Barre filtres actifs */
@@ -474,7 +531,7 @@ main {
   .grid-12 [class*="col-"] { grid-column: span 1; }
 }
 
-/* ── Charts grid ──────────────────────────────────────────────────────────── */
+/* ── Charts grid (legacy) ─────────────────────────────────────────────────── */
 .charts-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -484,6 +541,32 @@ main {
 
 @media (max-width: 900px) {
   .charts-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Split layout 50/50 (sociétés + table) ──────────────────────────────── */
+.split-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 28px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .split-layout { grid-template-columns: 1fr; }
+}
+
+/* ── Chart subtitle ──────────────────────────────────────────────────────── */
+.chart-subtitle {
+  font-size: 0.62rem;
+  color: var(--text-dim);
+  font-style: italic;
+  font-weight: 300;
+  margin-top: -10px;
+  margin-bottom: 14px;
+  letter-spacing: 0.01em;
+  line-height: 1.45;
+  opacity: 0.8;
 }
 
 /* ── Chart card ───────────────────────────────────────────────────────────── */
@@ -598,7 +681,6 @@ body:not(.light) #tooltip {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 20px 22px;
-  margin-bottom: 28px;
   transition: all 0.22s;
 }
 

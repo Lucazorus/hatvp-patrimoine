@@ -14,6 +14,9 @@ function _sankeySource() {
   let base = allData;
   if (activeDepute) return allData.filter(d => d.url === activeDepute.url);
   if (activeGroupe) return allData.filter(d => d.groupe === activeGroupe);
+  if (typeof excludedGroupes !== 'undefined' && excludedGroupes.size > 0) {
+    base = base.filter(d => !excludedGroupes.has(d.groupe));
+  }
   if (activeSocietes && activeSocietes.size > 0) {
     base = base.filter(d =>
       filterParticipations(d.participations).some(p =>
