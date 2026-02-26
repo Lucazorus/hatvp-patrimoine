@@ -1685,7 +1685,7 @@ function main() {
   buildBarValeurGroupe('bar-valeur-groupe-wrap', byG);
   buildBarSocietesStacked('bar-societes-wrap');
 
-  sortTable('valeurTotale');
+  applyTableFilters();
 
   let _lastSunburstWidth = 0;
   const rebuild = debounce(() => {
