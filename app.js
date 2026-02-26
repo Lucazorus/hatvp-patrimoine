@@ -1653,7 +1653,7 @@ function renderTable(filtered) {
 function main() {
   const raw = window.HATVP_DATA;
   if (!raw || !raw.length) {
-    document.getElementById('status').textContent = 'Erreur : données introuvables (data.js manquant ?)';
+    console.error('Erreur : données introuvables (data.js manquant ?)');
     return;
   }
 
@@ -1677,8 +1677,6 @@ function main() {
   const avecPart = allData.filter(d => d.nbParts > 0).length;
   updateKpis();
 
-  document.getElementById('status').textContent =
-    `${allData.length} députés · ${avecPart} avec participations · données HATVP`;
 
   const byG = aggregateByGroupe(allData);
   buildSunburst();

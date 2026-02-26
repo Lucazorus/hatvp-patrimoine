@@ -569,7 +569,23 @@ main {
   grid-template-columns: 1fr 1fr;
   gap: 14px;
   margin-bottom: 28px;
-  align-items: start;
+  align-items: stretch;
+}
+
+/* La carte sociétés s'étire pour matcher la hauteur du tableau */
+.split-layout > .chart-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* empêche la carte d'élargir la grid track */
+  min-height: 0;
+}
+
+/* Le wrap du bar chart sociétés scroll dans l'espace disponible */
+#bar-societes-wrap {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
 }
 
 @media (max-width: 1100px) {
