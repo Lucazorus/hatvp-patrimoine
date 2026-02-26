@@ -236,22 +236,12 @@ function updateFilterBar() {
   if (!bar || !tags) return;
 
   tags.innerHTML = '';
-  const hasAny = activeGroupe || activeDepute || activeSocietes.size > 0;
+  updateGroupeBtns();
+  const hasAny = activeDepute || activeSocietes.size > 0;
   bar.classList.toggle('visible', !!hasAny);
   const clearBtn = document.getElementById('filter-bar-clear-btn');
   if (clearBtn) clearBtn.style.display = hasAny ? '' : 'none';
   if (!hasAny) return;
-
-  // Chip groupe
-  if (activeGroupe) {
-    const chip = document.createElement('div');
-    chip.className = 'filter-chip';
-    chip.innerHTML = `<span class="chip-icon">●</span>
-      <span style="width:8px;height:8px;border-radius:50%;background:${gColor(activeGroupe)};display:inline-block;flex-shrink:0"></span>
-      <span>${activeGroupe}</span>
-      <button onclick="setFilter(null)" title="Retirer">✕</button>`;
-    tags.appendChild(chip);
-  }
 
   // Chip député
   if (activeDepute) {
@@ -289,6 +279,7 @@ function buildGroupeBtns() {
   const byG = aggregateByGroupe(allData).sort((a, b) => b.valeur - a.valeur);
 
   for (const g of byG) {
+    if (g.groupe === 'Inconnu') continue;
     const clr = g.couleur || gColor(g.groupe);
     const btn = document.createElement('button');
     btn.className = 'groupe-btn';
@@ -300,12 +291,26 @@ function buildGroupeBtns() {
     btn.addEventListener('click', () => toggleExcludeGroupe(g.groupe));
     bar.appendChild(btn);
   }
+
+  // Bouton "Tout effacer" universel — visible dès qu'un filtre quelconque est actif
+  const clearBtn = document.createElement('button');
+  clearBtn.className = 'groupe-btn-clear';
+  clearBtn.id = 'groupe-clear-btn';
+  clearBtn.textContent = '✕ Tout effacer';
+  clearBtn.style.display = 'none';
+  clearBtn.addEventListener('click', () => clearFilter());
+  bar.appendChild(clearBtn);
 }
 
 function updateGroupeBtns() {
   document.querySelectorAll('.groupe-btn').forEach(btn => {
     btn.classList.toggle('excluded', excludedGroupes.has(btn.dataset.groupe));
   });
+  const clearBtn = document.getElementById('groupe-clear-btn');
+  if (clearBtn) {
+    const anyFilter = excludedGroupes.size > 0 || !!activeDepute || activeSocietes.size > 0;
+    clearBtn.style.display = anyFilter ? 'inline-flex' : 'none';
+  }
 }
 
 function toggleExcludeGroupe(groupe) {
@@ -313,9 +318,15 @@ function toggleExcludeGroupe(groupe) {
   activeGroupe = null;
   activeDepute = null;
 
-  if (excludedGroupes.has(groupe)) {
+  if (excludedGroupes.size === 0) {
+    // Tous actifs → solo ce groupe (exclure tous les autres)
+    const allGroupes = [...new Set(allData.map(d => d.groupe).filter(Boolean))];
+    excludedGroupes = new Set(allGroupes.filter(g => g !== groupe));
+  } else if (excludedGroupes.has(groupe)) {
+    // Ce groupe était exclu → le réactiver
     excludedGroupes.delete(groupe);
   } else {
+    // Ce groupe était actif parmi d'autres → l'exclure
     excludedGroupes.add(groupe);
   }
   updateGroupeBtns();
@@ -372,6 +383,14 @@ function setFilter(groupe, skipSunburst = false) {
 function _applyDeputeFilterCharts(depute) {
   activeDepute = depute;
   activeGroupe = null;
+  // Synchroniser les boutons partis sur le groupe du député
+  if (depute.groupe) {
+    const allGroupes = [...new Set(allData.map(d => d.groupe).filter(Boolean))];
+    excludedGroupes = new Set(allGroupes.filter(g => g !== depute.groupe));
+  } else {
+    excludedGroupes = new Set();
+  }
+  updateGroupeBtns();
   const singleData = allData.filter(d => d.url === depute.url);
   const fg = aggregateByGroupe(singleData);
   updateKpis();
@@ -412,11 +431,8 @@ function clearFilter() {
   const fg = filteredForCharts();
   buildBarValeurGroupe('bar-valeur-groupe-wrap', fg);
   buildBarSocietesStacked('bar-societes-wrap');
-  // Sunburst : retour vue globale
-  if (_sunburstHier && _sunburstG) {
-    _sunburstZoomed = null;
-    _sunburstRender(_sunburstG, null, null, _sunburstSize / 2, true);
-  }
+  // Sunburst : reconstruction complète depuis les données non filtrées
+  buildSunburst();
   if (_sankeyBuilt && typeof buildSankey === 'function') {
     buildSankey();
   }
@@ -438,6 +454,14 @@ function buildSunburstData() {
     if (activeGroupe && g0 !== activeGroupe) continue;
     const filteredParts = filterParticipations(d.participations);
     if (filteredParts.length === 0) continue;
+    // Filtre société actif : n'inclure que les députés qui possèdent cette société
+    if (activeSocietes.size > 0) {
+      const hasMatch = filteredParts.some(p => {
+        const norm = normalizeSearch(p.societe);
+        return [...activeSocietes].some(sel => norm.includes(sel));
+      });
+      if (!hasMatch) continue;
+    }
     const g = d.groupe || 'Inconnu';
     if (!groupMap[g]) {
       groupMap[g] = { name: g, couleur: gColor(g), children: [] };
@@ -1099,7 +1123,9 @@ function buildBarSocietesStacked(wrapperId) {
   // Sinon → barres empilées toutes données, top 25 global
   const dataSource = activeDepute
     ? allData.filter(d => d.url === activeDepute.url)
-    : activeGroupe ? allData.filter(d => d.groupe === activeGroupe) : allData;
+    : activeGroupe ? allData.filter(d => d.groupe === activeGroupe)
+    : excludedGroupes.size > 0 ? allData.filter(d => !excludedGroupes.has(d.groupe || 'Inconnu'))
+    : allData;
 
   // Pour le stack, on a besoin de tous les groupes possibles
   // (si filtré par député, ses sociétés peuvent être partagées avec d'autres groupes)
@@ -1327,6 +1353,7 @@ function socPickerApply() {
     sortDir = -1;
   }
   buildBarSocietesStacked('bar-societes-wrap');
+  buildSunburst();
   updateChartTitles();
   applyTableFilters();
   updateFilterBar();

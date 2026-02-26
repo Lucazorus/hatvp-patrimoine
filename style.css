@@ -288,6 +288,26 @@ body.light #sticky-bar {
   text-decoration: none;
 }
 
+/* Bouton "Tout réactiver" dans la barre de partis */
+.groupe-btn-clear {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: 6px;
+  padding: 2px 9px;
+  border-radius: 20px;
+  border: 1.5px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-size: 0.60rem;
+  letter-spacing: 0;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+.groupe-btn-clear:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
 /* Barre filtres actifs */
 #filter-bar {
   display: none;

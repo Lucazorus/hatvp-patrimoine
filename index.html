@@ -5,21 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
   <!-- SEO -->
-  <title>Participations financières des députés — HATVP Open Data</title>
-  <meta name="description" content="Visualisation interactive des participations financières et intérêts dans des entreprises déclarés par les députés français. Source : HATVP (Déclarations d'Intérêts et d'Activités), 17e législature.">
+  <title>Open Mandats — Outils de visualisation des participations financières et intérêts déclarés par les 547 députés de l'Assemblée Nationale</title>
+  <meta name="description" content="Outils de visualisation des participations financières et intérêts déclarés par les 547 députés de l'Assemblée Nationale. Source : HATVP (Déclarations d'Intérêts et d'Activités), 17e législature.">
   <meta name="robots" content="index, follow">
   <link rel="canonical" href="https://hatvp-patrimoine.fr/">
 
   <!-- Open Graph / réseaux sociaux -->
   <meta property="og:type" content="website">
-  <meta property="og:title" content="Participations financières des députés — HATVP">
-  <meta property="og:description" content="Visualisation interactive des intérêts financiers déclarés par les 547 députés français — données HATVP open data.">
+  <meta property="og:title" content="Open Mandats">
+  <meta property="og:description" content="Outils de visualisation des participations financières et intérêts déclarés par les 547 députés de l'Assemblée Nationale">
   <meta property="og:locale" content="fr_FR">
 
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="Participations financières des députés — HATVP">
-  <meta name="twitter:description" content="Visualisation interactive des intérêts financiers déclarés par les 547 députés français — données HATVP open data.">
+  <meta name="twitter:title" content="Open Mandats">
+  <meta name="twitter:description" content="Outils de visualisation des participations financières et intérêts déclarés par les 547 députés de l'Assemblée Nationale">
 
   <!-- Styles -->
   <link rel="stylesheet" href="style.css?v=4">
@@ -57,7 +57,6 @@
   <div id="filter-bar" aria-live="polite">
     <span class="filter-bar-label">Filtres :</span>
     <div id="filter-bar-tags"></div>
-    <button class="filter-bar-clear" id="filter-bar-clear-btn" onclick="clearFilter()">✕ Tout effacer</button>
   </div>
 </div>
 
@@ -134,7 +133,7 @@
       </div>
       <p class="chart-subtitle" style="margin-top:6px">En millions d'euros · couleur = groupe politique · cliquer pour filtrer</p>
       <div style="height:1px;background:var(--border);margin-bottom:16px"></div>
-      <div class="chart-wrap" id="bar-societes-wrap" style="max-height:560px;overflow-y:auto;overflow-x:hidden"></div>
+      <div class="chart-wrap" id="bar-societes-wrap"></div>
     </div>
 
     <div class="table-card" id="table-section">
