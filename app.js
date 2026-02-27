@@ -116,6 +116,15 @@ function buildColorMap(data) {
 }
 function gColor(g) { return groupColorMap[g] || groupeColor(g, ''); }
 
+/* Retourne '#fff' ou une couleur sombre selon la luminance du fond — pour les labels sur arcs/cellules */
+function labelOnColor(hex) {
+  const c = d3.color(hex);
+  if (!c) return '#fff';
+  const toL = v => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4); };
+  const lum = 0.2126 * toL(c.r) + 0.7152 * toL(c.g) + 0.0722 * toL(c.b);
+  return lum > 0.32 ? '#3a3000' : '#fff';
+}
+
 /* ── Noms lisibles (sans acronymes) ──────────────────────────────────────── */
 function shortGroupe(g) {
   const map = {
@@ -142,6 +151,7 @@ function themeText()    { return isLight() ? 'rgba(57,62,65,0.6)'  : 'rgba(255,2
 function themeTextDim() { return isLight() ? 'rgba(57,62,65,0.35)' : 'rgba(255,255,255,0.35)'; }
 function themeAxis()    { return isLight() ? 'rgba(57,62,65,0.08)' : 'rgba(255,255,255,0.08)'; }
 function themeAxisLine(){ return isLight() ? 'rgba(57,62,65,0.06)' : 'rgba(255,255,255,0.06)'; }
+function themeHint()    { return isLight() ? 'rgba(128,100,0,0.75)' : 'rgba(113,156,175,0.8)'; }
 function themeSvgLabel(){ return isLight() ? 'rgba(57,62,65,0.55)' : 'rgba(255,255,255,0.55)'; }
 
 /* ── KPIs dynamiques ─────────────────────────────────────────────────────── */
@@ -640,7 +650,8 @@ function _drawRing(g, slices, r1, r2, colorFn, onMouseover, onClick, cls) {
 }
 
 // ── Labels sur un anneau ────────────────────────────────────────────────────
-function _drawLabels(g, slices, r1, r2, labelFn, minSpan, cls) {
+// colorFn(s) optionnel : retourne la couleur du texte pour chaque slice (sinon '#fff')
+function _drawLabels(g, slices, r1, r2, labelFn, minSpan, cls, colorFn) {
   const rMid = (r1 + r2) / 2;
   g.append('g').attr('class', 'arc-label ' + cls).attr('pointer-events', 'none')
     .selectAll('text')
@@ -651,7 +662,9 @@ function _drawLabels(g, slices, r1, r2, labelFn, minSpan, cls) {
       return `rotate(${angle}) translate(${rMid},0) rotate(${angle > 90 ? 180 : 0})`;
     })
     .attr('text-anchor', 'middle').attr('dy', '0.35em')
-    .style('font-size', '9px').style('fill', '#fff').style('font-weight', '500')
+    .style('font-size', '9px')
+    .style('fill', colorFn ? s => colorFn(s) : '#fff')
+    .style('font-weight', '500')
     .style('font-family', 'Inter, Arial, sans-serif').style('pointer-events', 'none')
     .text(s => labelFn(s));
 }
@@ -671,7 +684,7 @@ function _drawCenter(g, r, label1, label2, label3, onClickFn) {
   const texts = [
     { t: label1, dy: label3 ? '-1.1em' : '-0.1em', size: '13px', weight: '700', color: isLight() ? '#393E41' : '#e9eef4' },
     { t: label2, dy: '0.9em',  size: '9px',  weight: '400', color: isLight() ? 'rgba(57,62,65,0.45)' : 'rgba(255,255,255,0.35)' },
-    { t: label3, dy: '2.3em',  size: '9px',  weight: '400', color: isLight() ? '#7AA595' : 'rgba(113,156,175,0.8)' },
+    { t: label3, dy: '2.3em',  size: '9px',  weight: '400', color: themeHint() },
   ];
   texts.forEach(({ t, dy, size, weight, color }) => {
     if (!t) return;
@@ -755,7 +768,8 @@ function _sunburstRender(g, groupeNode, deputeNode, radius, _unused) {
 
     // Labels groupes
     _drawLabels(g, groupeSlices, INNER_R, MID_R - 3,
-      s => shortGroupe(s.node.data.name), 0.14, 'lbl-groupe');
+      s => shortGroupe(s.node.data.name), 0.14, 'lbl-groupe',
+      s => labelOnColor(s.node.data.couleur || gColor(s.node.data.name)));
 
     _drawCenter(g, INNER_R, 'Cliquez', 'un groupe', null, null);
 
@@ -779,7 +793,7 @@ function _sunburstRender(g, groupeNode, deputeNode, radius, _unused) {
         return t < 0.01 ? c.toString() : c.brighter(t * 1.0).toString();
       },
       (event, s) => showTip(
-        `<strong>${s.node.data.name}</strong><br>${s.node.data.nbParts} participation(s) · ${s.node.data.rawValue > 0 ? formatEur(s.node.data.rawValue) : 'valeur non précisée'}<br><em style="color:rgba(113,156,175,0.8)">Cliquer pour voir les sociétés</em>`,
+        `<strong>${s.node.data.name}</strong><br>${s.node.data.nbParts} participation(s) · ${s.node.data.rawValue > 0 ? formatEur(s.node.data.rawValue) : 'valeur non précisée'}<br><em style="color:${themeHint()}">Cliquer pour voir les sociétés</em>`,
         event),
       s => {
         _sunburstZoomed = { level: 2, groupeNode, deputeNode: s.node };
@@ -823,19 +837,21 @@ function _sunburstRender(g, groupeNode, deputeNode, radius, _unused) {
       (event, s) => showTip(
         s.node.data.isNonPublic
           ? `<strong>${s.node.data.name}</strong><br><em style="color:rgba(200,180,80,0.85)">Valeur non divulguée</em>`
-          : `<strong>${s.node.data.name}</strong><br>${formatEur(s.node.data.value)}<br><em style="color:rgba(113,156,175,0.8)">Cliquer pour filtrer</em>`,
+          : `<strong>${s.node.data.name}</strong><br>${formatEur(s.node.data.value)}<br><em style="color:${themeHint()}">Cliquer pour filtrer</em>`,
         event),
       s => { if (!s.node.data.isNonPublic) selectSocieteFromChart(s.node.data.name); },
       'ring-soc');
 
     // Labels députés
     _drawLabels(g, depSlices, INNER_R, MID_R - 3,
-      s => s.node.data.name.split(' ').pop(), 0.2, 'lbl-dep');
+      s => s.node.data.name.split(' ').pop(), 0.2, 'lbl-dep',
+      s => labelOnColor(s.node.data.couleur || gColor(s.node.data.groupe || '')));
 
     // Labels sociétés (si assez large)
     _drawLabels(g, socSlices, MID_R + 1, OUTER_R,
       s => s.node.data.name.length > 14 ? s.node.data.name.slice(0, 12) + '…' : s.node.data.name,
-      0.22, 'lbl-soc');
+      0.22, 'lbl-soc',
+      _ => labelOnColor(gColor(groupeNode.data.name)));
 
     _drawCenter(g, INNER_R,
       shortGroupe(groupeNode.data.name),
@@ -870,7 +886,8 @@ function _sunburstRender(g, groupeNode, deputeNode, radius, _unused) {
       'ring-depute-single');
 
     _drawLabels(g, depSlice, INNER_R, MID_R - 3,
-      s => s.node.data.name, 0.0, 'lbl-dep-single');
+      s => s.node.data.name, 0.0, 'lbl-dep-single',
+      _ => labelOnColor(depColor));
 
     // Anneau extérieur : ses sociétés
     const totalSoc = socNodes.reduce((s, n) => s + (n.data.value || 0), 0) || 1;
@@ -888,14 +905,15 @@ function _sunburstRender(g, groupeNode, deputeNode, radius, _unused) {
       (event, s) => showTip(
         s.node.data.isNonPublic
           ? `<strong>${s.node.data.name}</strong><br><em style="color:rgba(200,180,80,0.85)">Valeur non divulguée</em>`
-          : `<strong>${s.node.data.name}</strong><br>${formatEur(s.node.data.value)}<br><em style="color:rgba(113,156,175,0.8)">Cliquer pour filtrer</em>`,
+          : `<strong>${s.node.data.name}</strong><br>${formatEur(s.node.data.value)}<br><em style="color:${themeHint()}">Cliquer pour filtrer</em>`,
         event),
       s => { if (!s.node.data.isNonPublic) selectSocieteFromChart(s.node.data.name); },
       'ring-soc-dep');
 
     _drawLabels(g, socSlices, MID_R + 1, OUTER_R,
       s => s.node.data.name.length > 14 ? s.node.data.name.slice(0, 12) + '…' : s.node.data.name,
-      0.22, 'lbl-soc-dep');
+      0.22, 'lbl-soc-dep',
+      _ => labelOnColor(depColor));
 
     _drawCenter(g, INNER_R,
       shortGroupe(deputeNode.data.groupe),
@@ -1838,9 +1856,13 @@ function switchExplorerView(view, btn) {
   const sub = document.getElementById('explorer-subtitle');
   if (sub) sub.textContent = subtitles[view] || '';
 
-  if (view === 'treemap') buildTreemap();
-  if (view === 'sankey' && !_sankeyBuilt && allData.length) {
-    _sankeyBuilt = true;
+  // Toujours reconstruire la vue cible avec les filtres courants
+  if (view === 'treemap') {
+    buildTreemap();
+  } else if (view === 'sunburst') {
+    buildSunburst();
+  } else if (view === 'sankey') {
+    if (!_sankeyBuilt) _sankeyBuilt = true;
     if (typeof buildSankey === 'function') buildSankey();
   }
 }
@@ -1926,7 +1948,7 @@ function buildTreemap() {
           showTip(
             node.data.isNonPublic
               ? `<strong>${node.data.name}</strong><br><em style="color:rgba(200,180,80,0.85)">Valeur non divulguée</em>`
-              : `<strong>${node.data.name}</strong><br>${formatEur(node.value)}<br><em style="color:rgba(113,156,175,0.8)">Cliquer pour filtrer cette société</em>`,
+              : `<strong>${node.data.name}</strong><br>${formatEur(node.value)}<br><em style="color:${themeHint()}">Cliquer pour filtrer cette société</em>`,
             event);
         })
         .on('mousemove', moveTip)
@@ -1938,16 +1960,18 @@ function buildTreemap() {
         const nameLabel = node.data.name.length > maxChars
           ? node.data.name.slice(0, maxChars - 1) + '…'
           : node.data.name;
+        const lblClr = labelOnColor(fill);
+        const lblClrDim = lblClr === '#fff' ? 'rgba(255,255,255,0.65)' : 'rgba(58,48,0,0.55)';
         svg.append('text')
           .attr('x', node.x0 + 4).attr('y', node.y0 + 12)
           .text(nameLabel)
-          .attr('fill', 'white').attr('font-size', '9px').attr('font-weight', '500')
+          .attr('fill', lblClr).attr('font-size', '9px').attr('font-weight', '500')
           .style('pointer-events', 'none');
         if (nh > 26 && !node.data.isNonPublic) {
           svg.append('text')
             .attr('x', node.x0 + 4).attr('y', node.y0 + 24)
             .text(formatEur(node.value))
-            .attr('fill', 'rgba(255,255,255,0.65)').attr('font-size', '8px').attr('font-weight', '300')
+            .attr('fill', lblClrDim).attr('font-size', '8px').attr('font-weight', '300')
             .style('pointer-events', 'none');
         }
       }
@@ -2031,8 +2055,8 @@ function buildTreemap() {
           const groupIsActive = activeGroupe === groupeName
             || (excludedGroupes.size > 0 && !excludedGroupes.has(groupeName));
           const hint = groupIsActive
-            ? `<em style="color:rgba(113,156,175,0.8)">Cliquer pour filtrer ce député</em>`
-            : `<em style="color:rgba(113,156,175,0.8)">Cliquer pour filtrer ${shortGroupe(groupeName)}</em>`;
+            ? `<em style="color:${themeHint()}">Cliquer pour filtrer ce député</em>`
+            : `<em style="color:${themeHint()}">Cliquer pour filtrer ${shortGroupe(groupeName)}</em>`;
           showTip(`<strong>${dNode.data.name}</strong><br>${shortGroupe(groupeName)}<br>${formatEur(val)}<br>${hint}`, event);
         })
         .on('mousemove', moveTip)
@@ -2059,7 +2083,7 @@ function buildTreemap() {
         svg.append('text')
           .attr('x', dNode.x0 + 3).attr('y', dNode.y0 + 11)
           .text(label)
-          .attr('fill', 'white').attr('font-size', '9px').attr('font-weight', '500')
+          .attr('fill', labelOnColor(clr)).attr('font-size', '9px').attr('font-weight', '500')
           .style('pointer-events', 'none');
       }
     });

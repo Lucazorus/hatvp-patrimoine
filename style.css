@@ -25,22 +25,22 @@
   --shadow-lg:   0 16px 48px rgba(0,0,0,0.40);
 }
 
-/* ── Mode clair — palette lucasmassoni.com ───────────────────────────────── */
+/* ── Mode clair — accentuation dorée (#FFCF56 foncé) ────────────────────── */
 body.light {
   --bg:          #F2F1EC;
   --bg2:         #FAF9F5;
-  --surface:     rgba(122,165,149,0.06);
-  --surface2:    rgba(122,165,149,0.11);
-  --surface3:    rgba(122,165,149,0.18);
-  --border:      rgba(122,165,149,0.18);
-  --border2:     rgba(122,165,149,0.32);
-  --text:        #1a2224;
-  --text-muted:  #354f4a;
-  --text-dim:    rgba(30,45,48,0.55);
-  --accent:      #5a9080;
-  --accent2:     #3d8a67;
-  --accent-bg:   rgba(122,165,149,0.12);
-  --accent-glow: rgba(122,165,149,0.25);
+  --surface:     rgba(180,148,0,0.05);
+  --surface2:    rgba(180,148,0,0.09);
+  --surface3:    rgba(180,148,0,0.15);
+  --border:      rgba(180,148,0,0.14);
+  --border2:     rgba(180,148,0,0.27);
+  --text:        #1a1c10;
+  --text-muted:  #4a4018;
+  --text-dim:    rgba(38,32,8,0.52);
+  --accent:      #806800;
+  --accent2:     #664F00;
+  --accent-bg:   rgba(255,207,86,0.13);
+  --accent-glow: rgba(255,207,86,0.26);
   --sb-center-bg:#FAF9F5;
   --shadow-sm:   0 2px 8px rgba(0,0,0,0.06);
   --shadow-md:   0 6px 24px rgba(0,0,0,0.09);
@@ -71,7 +71,7 @@ button:focus:not(:focus-visible) { outline: none; box-shadow: none; }
 header {
   background: var(--bg2);
   border-bottom: 1px solid var(--border);
-  padding: 16px 40px;
+  padding: 10px 40px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -472,7 +472,7 @@ main {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 18px 20px;
+  padding: 12px 18px;
   position: relative;
   overflow: hidden;
   transition: all 0.22s ease;
@@ -498,7 +498,7 @@ main {
 .stat-card:hover::before { opacity: 1; }
 
 .stat-card .value {
-  font-size: 1.9rem;
+  font-size: 1.6rem;
   font-weight: 200;
   color: var(--text);
   line-height: 1;
@@ -512,7 +512,7 @@ main {
 .stat-card .label {
   font-size: 0.63rem;
   color: var(--text-dim);
-  margin-top: 7px;
+  margin-top: 5px;
   text-transform: uppercase;
   letter-spacing: 0.09em;
   font-weight: 400;
@@ -869,7 +869,7 @@ tr.row-active td {
   background: rgba(111,168,191,0.07);
 }
 body.light tr.row-active td {
-  background: rgba(122,165,149,0.08);
+  background: rgba(255,207,86,0.09);
 }
 
 .amount {

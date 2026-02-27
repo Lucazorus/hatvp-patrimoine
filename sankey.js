@@ -163,9 +163,9 @@ function buildSankey() {
       const totalOut = d.sourceLinks?.reduce((s, l) => s + l.value, 0) || 0;
       const val = Math.max(totalIn, totalOut);
       let html = `<strong>${d.name}</strong>`;
-      if (d.type === 'groupe')  html += `<br><span style="color:var(--text-dim)">Groupe politique</span><br>Total : <strong>${formatM(val)}</strong><br><em style="color:rgba(113,156,175,0.8)">Cliquer pour filtrer</em>`;
-      if (d.type === 'depute')  html += `<br><span style="color:var(--text-dim)">${d.meta?.groupe || ''}</span><br>Total : <strong>${formatM(val)}</strong><br><em style="color:rgba(113,156,175,0.8)">Cliquer pour filtrer</em>`;
-      if (d.type === 'societe') html += `<br><span style="color:var(--text-dim)">Société</span><br>Total détenu : <strong>${formatM(val)}</strong><br><em style="color:rgba(113,156,175,0.8)">Cliquer pour filtrer</em>`;
+      if (d.type === 'groupe')  html += `<br><span style="color:var(--text-dim)">Groupe politique</span><br>Total : <strong>${formatM(val)}</strong><br><em style="color:${themeHint()}">Cliquer pour filtrer</em>`;
+      if (d.type === 'depute')  html += `<br><span style="color:var(--text-dim)">${d.meta?.groupe || ''}</span><br>Total : <strong>${formatM(val)}</strong><br><em style="color:${themeHint()}">Cliquer pour filtrer</em>`;
+      if (d.type === 'societe') html += `<br><span style="color:var(--text-dim)">Société</span><br>Total détenu : <strong>${formatM(val)}</strong><br><em style="color:${themeHint()}">Cliquer pour filtrer</em>`;
       showTip(html, event);
     })
     .on('mousemove', moveTip)
