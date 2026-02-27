@@ -92,7 +92,7 @@
 
     <div class="chart-card col-9">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
-        <h2 style="margin:0;border:none;padding:0">Explorer : Groupes → Députés <small>(cliquez pour filtrer)</small></h2>
+        <h2 style="margin:0;border:none;padding:0" id="explorer-title">Explorer : Groupes → Députés <small>(cliquez pour filtrer)</small></h2>
         <div class="explorer-toggle">
           <button class="explorer-btn active" onclick="switchExplorerView('sunburst',this)">Sunburst</button>
           <button class="explorer-btn" onclick="switchExplorerView('treemap',this)">Treemap</button>
@@ -164,7 +164,7 @@
 
     <div class="table-card" id="table-section">
       <h2>
-        Détail par député
+        <span id="table-title">Détail par député</span>
         <input type="search" class="search-input" id="search" placeholder="Député, société..."
                aria-label="Rechercher un député ou une société">
       </h2>
@@ -173,7 +173,7 @@
         <table>
           <thead id="table-head">
             <tr>
-              <th onclick="sortTable('nom')">Député <span id="s-nom"></span></th>
+              <th onclick="sortTable('nom')" id="th-nom">Député <span id="s-nom"></span></th>
               <th onclick="sortTable('groupe')">Groupe <span id="s-groupe"></span></th>
               <th onclick="sortTable('departement')">Dép. <span id="s-departement"></span></th>
               <th onclick="sortTable('nbParts')">Participations <span id="s-nbParts"></span></th>

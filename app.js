@@ -730,7 +730,7 @@ function _sunburstRender(g, groupeNode, deputeNode, radius, _unused) {
     const gPaths = _drawRing(g, groupeSlices, INNER_R, MID_R - 3,
       s => s.node.data.couleur || gColor(s.node.data.name),
       (event, s) => showTip(
-        `<strong>${s.node.data.name}</strong><br>${s.node.children?.length ?? 0} député(s) avec participation(s)<br>Valeur : ${formatEur(s.node.value)}`,
+        `<strong>${s.node.data.name}</strong><br>${s.node.children?.length ?? 0} ${currentDataset === 'senateurs' ? 'sénateur(s)' : 'député(s)'} avec participation(s)<br>Valeur : ${formatEur(s.node.value)}`,
         event),
       s => { _sunburstZoomed = { level: 1, groupeNode: s.node, deputeNode: null }; _sunburstRender(g, s.node, null, radius, true); setFilter(s.node.data.name, true); },
       'ring-groupe');
@@ -1008,7 +1008,7 @@ function buildBarValeurGroupe(wrapperId, byG) {
     .attr('fill', 'transparent')
     .style('cursor', 'pointer')
     .on('mouseover', function(event, d) {
-      showTip(`<strong>${d.groupe}</strong><br>Valeur totale : ${formatM(d.valeur)}<br>${d.avecPart} député(s) avec participation(s)`, event);
+      showTip(`<strong>${d.groupe}</strong><br>Valeur totale : ${formatM(d.valeur)}<br>${d.avecPart} ${currentDataset === 'senateurs' ? 'sénateur(s)' : 'député(s)'} avec participation(s)`, event);
     })
     .on('mousemove', moveTip)
     .on('mouseleave', hideTip)
@@ -1039,7 +1039,7 @@ function buildBarValeurGroupe(wrapperId, byG) {
   barsG.selectAll('rect')
     .on('mouseover', function (event, d) {
       d3.select(this).attr('opacity', 1);
-      showTip(`<strong>${d.groupe}</strong><br>Valeur totale : ${formatM(d.valeur)}<br>${d.avecPart} député(s) avec participation(s)`, event);
+      showTip(`<strong>${d.groupe}</strong><br>Valeur totale : ${formatM(d.valeur)}<br>${d.avecPart} ${currentDataset === 'senateurs' ? 'sénateur(s)' : 'député(s)'} avec participation(s)`, event);
     })
     .on('mousemove', moveTip)
     .on('mouseleave', function (event, d) {
@@ -1162,7 +1162,7 @@ function buildBarMediane(wrapperId, byG) {
   g.selectAll('rect')
     .on('mouseover', function (event, d) {
       d3.select(this).attr('opacity', 1);
-      showTip(`<strong>${d.groupe}</strong><br>Médiane : ${formatEur(d.med)}<br>${d.avecPart} député(s) avec participation(s)`, event);
+      showTip(`<strong>${d.groupe}</strong><br>Médiane : ${formatEur(d.med)}<br>${d.avecPart} ${currentDataset === 'senateurs' ? 'sénateur(s)' : 'député(s)'} avec participation(s)`, event);
     })
     .on('mousemove', moveTip)
     .on('mouseleave', function (event, d) {
@@ -1712,7 +1712,7 @@ function renderTable(filtered) {
   }
 
   const pag = document.getElementById('pagination');
-  pag.innerHTML = `<span>${total} député(s)</span>`;
+  pag.innerHTML = `<span>${total} ${currentDataset === 'senateurs' ? 'sénateur(s)' : 'député(s)'}</span>`;
   if (pages > 1) {
     const prev = document.createElement('button');
     prev.className = 'page-btn'; prev.textContent = '←'; prev.disabled = currentPage === 1;
@@ -1864,9 +1864,10 @@ function switchExplorerView(view, btn) {
   document.getElementById('treemap-wrap').style.display   = view === 'treemap'  ? '' : 'none';
   document.getElementById('sankey-inner').style.display   = view === 'sankey'   ? '' : 'none';
 
+  const w = currentDataset === 'senateurs' ? 'sénateur' : 'député';
   const subtitles = {
-    sunburst: 'Anneau intérieur = groupe · anneau externe = député · surface ∝ valeur déclarée · double-clic pour zoomer',
-    treemap:  'Surface proportionnelle à la valeur · couleur = groupe · cliquer sur un groupe ou un député pour filtrer',
+    sunburst: `Anneau intérieur = groupe · anneau externe = ${w} · surface ∝ valeur déclarée · double-clic pour zoomer`,
+    treemap:  `Surface proportionnelle à la valeur · couleur = groupe · cliquer sur un groupe ou un ${w} pour filtrer`,
     sankey:   'Épaisseur des liens proportionnelle à la valeur · cliquer sur un nœud pour filtrer',
   };
   const sub = document.getElementById('explorer-subtitle');
@@ -1886,11 +1887,41 @@ window.switchExplorerView = switchExplorerView;
 
 /* ── Changement de dataset (Députés ↔ Sénateurs) ────────────────────────── */
 function updateHeaderDesc() {
-  const el = document.getElementById('header-desc');
-  if (!el) return;
-  const n    = allData.length;
-  const who  = currentDataset === 'senateurs' ? `${n} sénateurs du Sénat` : `${n} députés de l'Assemblée Nationale`;
-  el.innerHTML = `Participations financières et intérêts déclarés par les ${who} · Source : <a href="https://www.hatvp.fr/consulter-les-declarations/#open-data" target="_blank" rel="noopener">hatvp.fr</a>`;
+  const isSen = currentDataset === 'senateurs';
+  const n = allData.length;
+
+  // Bandeau header
+  const descEl = document.getElementById('header-desc');
+  if (descEl) {
+    const who = isSen ? `${n} sénateurs du Sénat` : `${n} députés de l'Assemblée Nationale`;
+    descEl.innerHTML = `Participations financières et intérêts déclarés par les ${who} · Source : <a href="https://www.hatvp.fr/consulter-les-declarations/#open-data" target="_blank" rel="noopener">hatvp.fr</a>`;
+  }
+
+  // Titre explorer
+  const explorerTitle = document.getElementById('explorer-title');
+  if (explorerTitle) {
+    const w = isSen ? 'Sénateurs' : 'Députés';
+    explorerTitle.innerHTML = `Explorer : Groupes → ${w} <small>(cliquez pour filtrer)</small>`;
+  }
+
+  // Titre section tableau + placeholder recherche + colonne
+  const tableTitle = document.getElementById('table-title');
+  if (tableTitle) tableTitle.textContent = isSen ? 'Détail par sénateur' : 'Détail par député';
+
+  const searchEl = document.getElementById('search');
+  if (searchEl) {
+    const ph = isSen ? 'Sénateur, société...' : 'Député, société...';
+    searchEl.placeholder = ph;
+    searchEl.setAttribute('aria-label', isSen ? 'Rechercher un sénateur ou une société' : 'Rechercher un député ou une société');
+  }
+
+  const thNom = document.getElementById('th-nom');
+  if (thNom) {
+    const sortSpan = document.getElementById('s-nom');
+    thNom.innerHTML = `${isSen ? 'Sénateur' : 'Député'} `;
+    if (sortSpan) thNom.appendChild(sortSpan);
+    else thNom.innerHTML += '<span id="s-nom"></span>';
+  }
 }
 
 function switchDataset(ds, btn) {
@@ -1919,14 +1950,29 @@ function switchDataset(ds, btn) {
   for (const k in _groupColorCache) delete _groupColorCache[k];
   _colorIdx = 0;
 
-  // Reset état explorer
+  // Reset état explorer complet
   _sunburstHier   = null;
   _sunburstG      = null;
   _sunburstZoomed = null;
+  _sunburstSvg    = null;
+  _sunburstPaths  = null;
+  _sunburstSize   = 0;
   _sankeyBuilt    = false;
   _currentExplorerView = 'sunburst';
   // Remettre le bouton Sunburst actif dans le toggle
   document.querySelectorAll('.explorer-btn').forEach((b, i) => b.classList.toggle('active', i === 0));
+  // Mettre à jour la visibilité des panels (si l'utilisateur était sur treemap/sankey)
+  const sbWrap = document.getElementById('sunburst-wrap');
+  const tmWrap = document.getElementById('treemap-wrap');
+  const skInner = document.getElementById('sankey-inner');
+  if (sbWrap)  sbWrap.style.display  = '';
+  if (tmWrap)  tmWrap.style.display  = 'none';
+  if (skInner) skInner.style.display = 'none';
+  // Remettre le sous-titre sunburst
+  const explorerSub = document.getElementById('explorer-subtitle');
+  const word = ds === 'senateurs' ? 'sénateur' : 'député';
+  if (explorerSub) explorerSub.textContent =
+    `Anneau intérieur = groupe · anneau externe = ${word} · surface ∝ valeur déclarée · double-clic pour zoomer`;
 
   // Reconstruire allData
   allData = raw.map(d => ({
@@ -1942,10 +1988,13 @@ function switchDataset(ds, btn) {
   // Mettre à jour les boutons dataset
   document.querySelectorAll('.dataset-btn').forEach(b => b.classList.toggle('active', b.dataset.ds === ds));
 
+  // Vider le champ de recherche texte (noms différents entre les deux datasets)
+  const searchEl = document.getElementById('search');
+  if (searchEl) searchEl.value = '';
+
   updateHeaderDesc();
   buildGroupeBtns();
-  updateKpis();
-  clearFilter(); // reconstruit tous les charts
+  clearFilter(); // reconstruit tous les charts (KPIs, barres, explorer, table)
 }
 window.switchDataset = switchDataset;
 

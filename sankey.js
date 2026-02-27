@@ -237,7 +237,7 @@ function buildSankey() {
   const colLabelColor = light ? 'rgba(57,62,65,0.35)' : 'rgba(180,200,215,0.4)';
   const colLabels = [
     { text: 'GROUPE POLITIQUE', x: 0,        anchor: 'start'  },
-    { text: 'DÉPUTÉ',           x: innerW/2,  anchor: 'middle' },
+    { text: currentDataset === 'senateurs' ? 'SÉNATEUR' : 'DÉPUTÉ', x: innerW/2,  anchor: 'middle' },
     { text: 'SOCIÉTÉ',          x: innerW,    anchor: 'end'    },
   ];
   svg.append('g').attr('transform', `translate(${margin.left},10)`)
