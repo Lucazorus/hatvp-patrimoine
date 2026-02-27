@@ -177,7 +177,7 @@ function buildSankey() {
         setFilter(activeGroupe === d.meta.fullName ? null : d.meta.fullName);
       } else if (d.type === 'depute') {
         if (activeDepute && activeDepute.url === d.meta.url) {
-          clearFilter();
+          clearDeputeFilter();
         } else {
           setDeputeFilter({ url: d.meta.url, prenom: d.meta.prenom, nom: d.meta.nom, groupe: d.meta.groupe });
         }

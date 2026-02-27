@@ -42,12 +42,9 @@ function isStructurePrivee(name) {
   return PRIVATE_STRUCT_RE.test(name);
 }
 
-let bouSeulFilter = false; // filtre "bourse uniquement" actif
-
-// Filtre une liste de participations selon le mode bourse
+// Filtre les participations non publiées
 function filterParticipations(parts) {
-  if (!bouSeulFilter) return parts;
-  return parts.filter(p => !isNonPublic(p.societe) && !isStructurePrivee(p.societe));
+  return parts;
 }
 
 function decodeHtml(str) {
@@ -250,7 +247,7 @@ function updateFilterBar() {
     chip.innerHTML = `<span class="chip-icon">👤</span>
       <span style="width:8px;height:8px;border-radius:50%;background:${gColor(activeDepute.groupe)};display:inline-block;flex-shrink:0"></span>
       <span>${activeDepute.prenom} ${activeDepute.nom}</span>
-      <button onclick="clearFilter()" title="Retirer">✕</button>`;
+      <button onclick="clearDeputeFilter()" title="Retirer">✕</button>`;
     tags.appendChild(chip);
   }
 
@@ -336,8 +333,7 @@ function toggleExcludeGroupe(groupe) {
   const fg = filteredForCharts();
   buildBarValeurGroupe('bar-valeur-groupe-wrap', fg);
   buildBarSocietesStacked('bar-societes-wrap');
-  buildSunburst();
-  if (_sankeyBuilt && typeof buildSankey === 'function') buildSankey();
+  rebuildExplorer();
   currentPage = 1;
   applyTableFilters();
 }
@@ -360,20 +356,23 @@ function setFilter(groupe, skipSunburst = false) {
   const fg = filteredForCharts();
   buildBarValeurGroupe('bar-valeur-groupe-wrap', fg);
   buildBarSocietesStacked('bar-societes-wrap');
-  if (!skipSunburst && _sunburstHier && _sunburstG) {
-    if (groupe) {
-      const node = _sunburstHier.descendants().find(d => d.depth === 1 && d.data.name === groupe);
-      if (node) {
-        _sunburstZoomed = { level: 1, groupeNode: node, deputeNode: null };
-        _sunburstRender(_sunburstG, node, null, _sunburstSize / 2, true);
+  if (!skipSunburst) {
+    if (_currentExplorerView === 'sunburst' && _sunburstHier && _sunburstG) {
+      if (groupe) {
+        const node = _sunburstHier.descendants().find(d => d.depth === 1 && d.data.name === groupe);
+        if (node) {
+          _sunburstZoomed = { level: 1, groupeNode: node, deputeNode: null };
+          _sunburstRender(_sunburstG, node, null, _sunburstSize / 2, true);
+        }
+      } else {
+        _sunburstZoomed = null;
+        _sunburstRender(_sunburstG, null, null, _sunburstSize / 2, true);
       }
-    } else {
-      _sunburstZoomed = null;
-      _sunburstRender(_sunburstG, null, null, _sunburstSize / 2, true);
+    } else if (_currentExplorerView === 'treemap') {
+      buildTreemap();
+    } else if (_currentExplorerView === 'sankey' && _sankeyBuilt && typeof buildSankey === 'function') {
+      buildSankey();
     }
-  }
-  if (_sankeyBuilt && typeof buildSankey === 'function') {
-    buildSankey();
   }
   currentPage = 1;
   applyTableFilters();
@@ -398,7 +397,9 @@ function _applyDeputeFilterCharts(depute) {
   updateFilterBar();
   buildBarValeurGroupe('bar-valeur-groupe-wrap', fg);
   buildBarSocietesStacked('bar-societes-wrap');
-  if (_sankeyBuilt && typeof buildSankey === 'function') {
+  if (_currentExplorerView === 'treemap') {
+    buildTreemap();
+  } else if (_sankeyBuilt && typeof buildSankey === 'function') {
     buildSankey();
   }
   currentPage = 1;
@@ -418,6 +419,17 @@ function setDeputeFilter(depute) {
   }
 }
 
+// Supprime uniquement le filtre député en conservant le filtre groupe
+function clearDeputeFilter() {
+  const groupe = activeDepute ? activeDepute.groupe : null;
+  if (groupe) {
+    setFilter(groupe); // revient au niveau groupe, garde le solo dans la barre
+  } else {
+    clearFilter();
+  }
+}
+window.clearDeputeFilter = clearDeputeFilter;
+
 function clearFilter() {
   activeGroupe = null;
   activeDepute = null;
@@ -431,11 +443,8 @@ function clearFilter() {
   const fg = filteredForCharts();
   buildBarValeurGroupe('bar-valeur-groupe-wrap', fg);
   buildBarSocietesStacked('bar-societes-wrap');
-  // Sunburst : reconstruction complète depuis les données non filtrées
-  buildSunburst();
-  if (_sankeyBuilt && typeof buildSankey === 'function') {
-    buildSankey();
-  }
+  // Reconstruction de la vue explorer active (sunburst, treemap ou sankey)
+  rebuildExplorer();
   currentPage = 1;
   applyTableFilters();
 }
@@ -467,8 +476,8 @@ function buildSunburstData() {
       groupMap[g] = { name: g, couleur: gColor(g), children: [] };
       root.children.push(groupMap[g]);
     }
-    // Sociétés du député (hors non-publiées, top 12 par valeur)
-    const societes = filteredParts
+    // Sociétés publiques du député (top 12 par valeur)
+    const publicSocietes = filteredParts
       .filter(p => !isNonPublic(p.societe) && (p.evaluation || 0) > 0)
       .sort((a, b) => b.evaluation - a.evaluation)
       .slice(0, 12)
@@ -479,12 +488,28 @@ function buildSunburstData() {
         couleur: gColor(g),
       }));
 
+    const nonPublicParts = filteredParts.filter(p => isNonPublic(p.societe));
+    const societes = [...publicSocietes];
+    if (nonPublicParts.length > 0) {
+      // Valeur d'affichage arbitraire (valeur réelle non divulguée)
+      const baseRef = publicSocietes.length > 0
+        ? publicSocietes[publicSocietes.length - 1].value  // plus petite déclarée
+        : 10000;
+      societes.push({
+        name: nonPublicParts.length > 1 ? `Non publié ×${nonPublicParts.length}` : 'Non publié',
+        value: Math.max(baseRef * 0.3, 5000),
+        type: 'nonpublic',
+        couleur: '#7a8a90',
+        isNonPublic: true,
+      });
+    }
+
     const filteredVal = filteredParts.reduce((s, p) => s + (p.evaluation || 0), 0);
 
     // Pour éviter le double-comptage avec d3.hierarchy.sum() :
-    // si le député a des enfants (sociétés), sa propre valeur = filteredVal - somme des sociétés
-    // afin que sum() reconstitue exactement filteredVal sans doublon.
-    const socSum = societes.reduce((s, p) => s + (p.value || 0), 0);
+    // si le député a des enfants (sociétés), sa propre valeur = filteredVal - somme des sociétés publiées
+    // (la valeur d'affichage des non-publiés est artificielle, on ne la compte pas ici)
+    const socSum = publicSocietes.reduce((s, p) => s + (p.value || 0), 0);
     const selfValue = societes.length
       ? Math.max(filteredVal - socSum, 0)   // reste non représenté en enfants
       : Math.max(filteredVal, 1000);         // feuille : valeur minimale pour la visibilité
@@ -516,6 +541,13 @@ let _sunburstHier   = null;   // hiérarchie D3 complète
 let _sunburstZoomed = null;   // { level: 0|1|2, groupeNode, deputeNode }
 let _sunburstPaths  = null;   // paths courants (pour highlight)
 let _sunburstSize   = 0;
+
+// Rebuild la vue explorer active (sunburst, treemap ou sankey)
+function rebuildExplorer() {
+  if (_currentExplorerView === 'treemap') buildTreemap();
+  else if (_currentExplorerView === 'sankey' && _sankeyBuilt && typeof buildSankey === 'function') buildSankey();
+  else buildSunburst();
+}
 
 function buildSunburst() {
   const wrap = document.getElementById('sunburst-wrap');
@@ -762,29 +794,38 @@ function _sunburstRender(g, groupeNode, deputeNode, radius, _unused) {
     // Anneau sociétés (agrégé par société sur tout le groupe)
     // On construit une map société→valeur totale sur tout le groupe
     const socMap = {};
+    let nonPublicGroupTotal = 0;
+    let nonPublicGroupCount = 0;
     for (const dn of (groupeNode.children || [])) {
       for (const sn of (dn.children || [])) {
-        const key = sn.data.name;
-        socMap[key] = (socMap[key] || 0) + (sn.data.value || 0);
+        if (sn.data.isNonPublic) {
+          nonPublicGroupTotal += (sn.data.value || 0);
+          nonPublicGroupCount++;
+        } else {
+          const key = sn.data.name;
+          socMap[key] = (socMap[key] || 0) + (sn.data.value || 0);
+        }
       }
     }
     const socNodes = Object.entries(socMap)
       .sort((a, b) => b[1] - a[1])
       .map(([name, value]) => ({ data: { name, value, type: 'societe', couleur: gColor(groupeNode.data.name) }, value }));
+    if (nonPublicGroupCount > 0) {
+      socNodes.push({ data: { name: `Non publié (×${nonPublicGroupCount})`, value: nonPublicGroupTotal, isNonPublic: true }, value: nonPublicGroupTotal });
+    }
 
     const totalSoc = socNodes.reduce((s, n) => s + n.value, 0) || 1;
     const socSlices = _spreadAngles(socNodes, totalSoc);
 
     _drawRing(g, socSlices, MID_R + 1, OUTER_R,
-      s => {
-        const base = gColor(groupeNode.data.name);
-        const idx = socNodes.indexOf(s.node);
-        return d3.color(base)?.brighter(0.15 + idx * 0.06) ?? base;
-      },
+      s => s.node.data.isNonPublic ? '#7a8a90'
+        : (d3.color(gColor(groupeNode.data.name))?.brighter(0.15 + socNodes.indexOf(s.node) * 0.06) ?? gColor(groupeNode.data.name)),
       (event, s) => showTip(
-        `<strong>${s.node.data.name}</strong><br>${formatEur(s.node.data.value)}<br><em style="color:rgba(113,156,175,0.8)">Cliquer pour filtrer</em>`,
+        s.node.data.isNonPublic
+          ? `<strong>${s.node.data.name}</strong><br><em style="color:rgba(200,180,80,0.85)">Valeur non divulguée</em>`
+          : `<strong>${s.node.data.name}</strong><br>${formatEur(s.node.data.value)}<br><em style="color:rgba(113,156,175,0.8)">Cliquer pour filtrer</em>`,
         event),
-      s => selectSocieteFromChart(s.node.data.name),
+      s => { if (!s.node.data.isNonPublic) selectSocieteFromChart(s.node.data.name); },
       'ring-soc');
 
     // Labels députés
@@ -840,13 +881,16 @@ function _sunburstRender(g, groupeNode, deputeNode, radius, _unused) {
 
     _drawRing(g, socSlices, MID_R + 1, OUTER_R,
       s => {
+        if (s.node.data.isNonPublic) return '#7a8a90';
         const bright = 0.3 + (socSlices.indexOf(s) / Math.max(socSlices.length - 1, 1)) * 0.6;
         return d3.color(depColor)?.brighter(bright) ?? depColor;
       },
       (event, s) => showTip(
-        `<strong>${s.node.data.name}</strong><br>${formatEur(s.node.data.value)}<br><em style="color:rgba(113,156,175,0.8)">Cliquer pour filtrer</em>`,
+        s.node.data.isNonPublic
+          ? `<strong>${s.node.data.name}</strong><br><em style="color:rgba(200,180,80,0.85)">Valeur non divulguée</em>`
+          : `<strong>${s.node.data.name}</strong><br>${formatEur(s.node.data.value)}<br><em style="color:rgba(113,156,175,0.8)">Cliquer pour filtrer</em>`,
         event),
-      s => selectSocieteFromChart(s.node.data.name),
+      s => { if (!s.node.data.isNonPublic) selectSocieteFromChart(s.node.data.name); },
       'ring-soc-dep');
 
     _drawLabels(g, socSlices, MID_R + 1, OUTER_R,
@@ -1298,6 +1342,17 @@ function buildBarSocietesStacked(wrapperId) {
    TABLE
    ══════════════════════════════════════════════════════════════════════════ */
 
+// Cale la hauteur de la carte sociétés sur la hauteur du tableau
+function syncSocCardHeight() {
+  requestAnimationFrame(() => {
+    const tableCard = document.querySelector('.table-card');
+    const socCard = document.querySelector('.split-layout > .chart-card');
+    if (tableCard && socCard) {
+      socCard.style.maxHeight = tableCard.offsetHeight + 'px';
+    }
+  });
+}
+
 function applyTableFilters() {
   const q = document.getElementById('search').value.toLowerCase().trim();
   const filtered = allData.filter(d => {
@@ -1315,11 +1370,10 @@ function applyTableFilters() {
            const norm = normalizeSearch(p.societe);
            return [...activeSocietes].some(sel => norm.includes(sel));
          });
-    // En mode bourse, on n'affiche que les députés avec au moins 1 participation filtrée
-    const hasParts = !bouSeulFilter || parts.some(p => !isNonPublic(p.societe));
-    return matchG && matchD && matchQ && matchSoc && hasParts;
+    return matchG && matchD && matchQ && matchSoc;
   });
   renderTable(filtered);
+  syncSocCardHeight();
 }
 
 /* ── Société multi-picker ─────────────────────────────────────────────────── */
@@ -1353,7 +1407,7 @@ function socPickerApply() {
     sortDir = -1;
   }
   buildBarSocietesStacked('bar-societes-wrap');
-  buildSunburst();
+  rebuildExplorer();
   updateChartTitles();
   applyTableFilters();
   updateFilterBar();
@@ -1567,7 +1621,7 @@ function renderTable(filtered) {
     tr.addEventListener('click', (e) => {
       if (e.target.tagName === 'A') return;
       if (activeDepute && activeDepute.url === d.url) {
-        clearFilter();
+        clearDeputeFilter();
       } else {
         setDeputeFilter(d);
       }
@@ -1685,35 +1739,47 @@ function main() {
 
   applyTableFilters();
 
+  let _lastMainWidth = 0;
   let _lastSunburstWidth = 0;
+  const mainEl = document.querySelector('main');
+
   const rebuild = debounce(() => {
-    // Ne rebuilder le sunburst que si la largeur a vraiment changé (pas juste la hauteur)
-    // Évite de reset le drill-down quand la filter-bar apparaît/disparaît
-    const wrap = document.getElementById('sunburst-wrap');
-    const newW = wrap ? wrap.clientWidth : 0;
-    if (Math.abs(newW - _lastSunburstWidth) > 10) {
-      _lastSunburstWidth = newW;
-      // Sauvegarder l'état du zoom avant rebuild
-      const savedZoom = _sunburstZoomed;
-      buildSunburst();
-      // Restaurer le zoom après rebuild
-      if (savedZoom && _sunburstG && _sunburstHier) {
-        if (savedZoom.level === 1 && savedZoom.groupeNode) {
-          const gn = _sunburstHier.descendants().find(d => d.depth === 1 && d.data.name === savedZoom.groupeNode.data.name);
-          if (gn) { _sunburstZoomed = { level: 1, groupeNode: gn, deputeNode: null }; _sunburstRender(_sunburstG, gn, null, _sunburstSize / 2, false); }
-        } else if (savedZoom.level === 2 && savedZoom.groupeNode && savedZoom.deputeNode) {
-          const gn = _sunburstHier.descendants().find(d => d.depth === 1 && d.data.name === savedZoom.groupeNode.data.name);
-          const dn = gn?.children?.find(d => d.data.url === savedZoom.deputeNode.data.url);
-          if (gn && dn) { _sunburstZoomed = { level: 2, groupeNode: gn, deputeNode: dn }; _sunburstRender(_sunburstG, gn, dn, _sunburstSize / 2, false); }
+    // Ne rebuilder que si la LARGEUR a changé (pas juste la hauteur).
+    // Évite le double-clignotement des animations quand syncSocCardHeight ou la
+    // filter-bar modifient la hauteur de la page sans toucher à la largeur.
+    const newW = mainEl ? mainEl.clientWidth : 0;
+    if (Math.abs(newW - _lastMainWidth) < 8) return;
+    _lastMainWidth = newW;
+
+    if (_currentExplorerView === 'sunburst') {
+      const wrap = document.getElementById('sunburst-wrap');
+      const sbW = wrap ? wrap.clientWidth : 0;
+      if (Math.abs(sbW - _lastSunburstWidth) > 10) {
+        _lastSunburstWidth = sbW;
+        // Sauvegarder l'état du zoom avant rebuild
+        const savedZoom = _sunburstZoomed;
+        buildSunburst();
+        // Restaurer le zoom après rebuild
+        if (savedZoom && _sunburstG && _sunburstHier) {
+          if (savedZoom.level === 1 && savedZoom.groupeNode) {
+            const gn = _sunburstHier.descendants().find(d => d.depth === 1 && d.data.name === savedZoom.groupeNode.data.name);
+            if (gn) { _sunburstZoomed = { level: 1, groupeNode: gn, deputeNode: null }; _sunburstRender(_sunburstG, gn, null, _sunburstSize / 2, false); }
+          } else if (savedZoom.level === 2 && savedZoom.groupeNode && savedZoom.deputeNode) {
+            const gn = _sunburstHier.descendants().find(d => d.depth === 1 && d.data.name === savedZoom.groupeNode.data.name);
+            const dn = gn?.children?.find(d => d.data.url === savedZoom.deputeNode.data.url);
+            if (gn && dn) { _sunburstZoomed = { level: 2, groupeNode: gn, deputeNode: dn }; _sunburstRender(_sunburstG, gn, dn, _sunburstSize / 2, false); }
+          }
         }
       }
+    } else {
+      rebuildExplorer();
     }
     const fg = filteredForCharts();
     buildBarValeurGroupe('bar-valeur-groupe-wrap', fg);
     buildBarSocietesStacked('bar-societes-wrap');
   }, 200);
 
-  const mainEl = document.querySelector('main');
+  _lastMainWidth = mainEl ? mainEl.clientWidth : 0;
   _lastSunburstWidth = document.getElementById('sunburst-wrap')?.clientWidth || 0;
   new ResizeObserver(rebuild).observe(mainEl);
 }
@@ -1729,24 +1795,6 @@ window.socPickerClearAll = socPickerClearAll;
 window.socPickerRemove = socPickerRemove;
 window.updateFilterBar = updateFilterBar;
 
-function toggleBourse() {
-  bouSeulFilter = !bouSeulFilter;
-  _socList = null; // invalide le cache de la liste des sociétés
-  const btn = document.getElementById('bourse-toggle-btn');
-  if (btn) btn.classList.toggle('active', bouSeulFilter);
-  updateKpis();
-  updateFilterBar();
-  const fg = filteredForCharts();
-  buildBarValeurGroupe('bar-valeur-groupe-wrap', fg);
-  buildBarSocietesStacked('bar-societes-wrap');
-  buildSunburst();
-  if (_sankeyBuilt && typeof buildSankey === 'function') {
-    buildSankey();
-  }
-  currentPage = 1;
-  applyTableFilters();
-}
-window.toggleBourse = toggleBourse;
 
 /* ── Toggle thème clair / sombre ────────────────────────────────────────── */
 function toggleTheme() {
@@ -1755,32 +1803,271 @@ function toggleTheme() {
   if (btn) btn.textContent = isLight ? 'Mode sombre' : 'Mode clair';
   try { localStorage.setItem('theme', isLight ? 'light' : 'dark'); } catch(e) {}
   // Re-render les graphiques D3 (couleurs texte SVG hardcodées)
-  if (_sunburstHier && _sunburstG) {
-    const z = _sunburstZoomed;
-    _sunburstRender(_sunburstG, z?.groupeNode ?? null, z?.deputeNode ?? null, _sunburstSize / 2, false);
+  if (_currentExplorerView === 'sunburst') {
+    if (_sunburstHier && _sunburstG) {
+      const z = _sunburstZoomed;
+      _sunburstRender(_sunburstG, z?.groupeNode ?? null, z?.deputeNode ?? null, _sunburstSize / 2, false);
+    }
+  } else {
+    rebuildExplorer(); // treemap ou sankey : rebuild complet pour recalculer les couleurs
   }
   const fg = filteredForCharts();
   buildBarValeurGroupe('bar-valeur-groupe-wrap', fg);
   buildBarSocietesStacked('bar-societes-wrap');
-  // Re-render Sankey si construit
-  if (_sankeyBuilt) buildSankey();
 }
 window.toggleTheme = toggleTheme;
 
-/* ── Onglets ─────────────────────────────────────────────────────────────── */
+/* ── Vue explorer (Sunburst / Treemap / Sankey) ─────────────────────────── */
 let _sankeyBuilt = false;
-function switchTab(id, btn) {
-  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('tab-' + id).classList.add('active');
-  btn.classList.add('active');
-  // Construire le sankey la première fois qu'on ouvre l'onglet
-  if (id === 'sankey' && !_sankeyBuilt && allData.length) {
+let _currentExplorerView = 'sunburst';
+
+function switchExplorerView(view, btn) {
+  _currentExplorerView = view;
+  document.querySelectorAll('.explorer-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+
+  document.getElementById('sunburst-wrap').style.display  = view === 'sunburst' ? '' : 'none';
+  document.getElementById('treemap-wrap').style.display   = view === 'treemap'  ? '' : 'none';
+  document.getElementById('sankey-inner').style.display   = view === 'sankey'   ? '' : 'none';
+
+  const subtitles = {
+    sunburst: 'Anneau intérieur = groupe · anneau externe = député · surface ∝ valeur déclarée · double-clic pour zoomer',
+    treemap:  'Surface proportionnelle à la valeur · couleur = groupe · cliquer sur un groupe ou un député pour filtrer',
+    sankey:   'Épaisseur des liens proportionnelle à la valeur · cliquer sur un nœud pour filtrer',
+  };
+  const sub = document.getElementById('explorer-subtitle');
+  if (sub) sub.textContent = subtitles[view] || '';
+
+  if (view === 'treemap') buildTreemap();
+  if (view === 'sankey' && !_sankeyBuilt && allData.length) {
     _sankeyBuilt = true;
     if (typeof buildSankey === 'function') buildSankey();
   }
 }
-window.switchTab = switchTab;
+window.switchExplorerView = switchExplorerView;
+
+/* ── Treemap ─────────────────────────────────────────────────────────────── */
+function buildTreemap() {
+  const wrap = document.getElementById('treemap-wrap');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+
+  const W = wrap.clientWidth || 800;
+  const sub = document.getElementById('explorer-subtitle');
+
+  // ── Mode député : treemap plat des participations ─────────────────────────
+  if (activeDepute) {
+    const dep = allData.find(d => d.url === activeDepute.url);
+    if (!dep) return;
+    if (sub) sub.textContent = `Participations de ${dep.prenom} ${dep.nom} · surface ∝ valeur · cliquer pour filtrer par société`;
+
+    const clr = gColor(dep.groupe || 'Inconnu');
+    const allParts = filterParticipations(dep.participations);
+    const publicParts = allParts
+      .filter(p => !isNonPublic(p.societe) && (p.evaluation || 0) > 0)
+      .sort((a, b) => b.evaluation - a.evaluation);
+    const nonPublicCount = allParts.filter(p => isNonPublic(p.societe)).length;
+
+    if (!publicParts.length && !nonPublicCount) {
+      wrap.innerHTML = '<div class="empty-state">Aucune participation pour ce député.</div>';
+      return;
+    }
+
+    // Valeur d'affichage arbitraire pour les non-publiés
+    const baseRef = publicParts.length > 0 ? publicParts[publicParts.length - 1].evaluation : 10000;
+    const nonPublicDisplayVal = Math.max(baseRef * 0.3, 5000);
+
+    const children = [
+      ...publicParts.map(p => ({ name: p.societe, value: p.evaluation, isNonPublic: false })),
+      ...(nonPublicCount > 0 ? [{
+        name: nonPublicCount > 1 ? `Non publié ×${nonPublicCount}` : 'Non publié',
+        value: nonPublicDisplayVal,
+        isNonPublic: true,
+      }] : []),
+    ];
+
+    const H = Math.max(Math.round(W * 0.55), 280);
+    const root = d3.hierarchy({
+      name: dep.nom,
+      children,
+    })
+      .sum(d => d.value || 0)
+      .sort((a, b) => b.value - a.value);
+
+    d3.treemap()
+      .size([W, H])
+      .paddingOuter(3).paddingTop(0).paddingInner(2)
+      .round(true)(root);
+
+    const svg = d3.select(wrap).append('svg')
+      .attr('width', W).attr('height', H)
+      .style('font-family', 'Inter, Arial, sans-serif')
+      .style('opacity', 0);
+
+    (root.children || []).forEach(node => {
+      const nw = Math.max(0, node.x1 - node.x0);
+      const nh = Math.max(0, node.y1 - node.y0);
+      const ratio = root.value ? node.value / root.value : 0;
+      const isActive = !node.data.isNonPublic && activeSocietes.has(normalizeSearch(node.data.name));
+      const fill    = node.data.isNonPublic ? '#5a6870' : clr;
+      const opacity = node.data.isNonPublic ? 0.55 : (isActive ? 1 : 0.42 + ratio * 0.50);
+
+      svg.append('rect')
+        .attr('x', node.x0).attr('y', node.y0)
+        .attr('width', nw).attr('height', nh)
+        .attr('fill', fill)
+        .attr('opacity', opacity)
+        .attr('stroke', isActive ? '#fff' : (node.data.isNonPublic ? '#9aa8b0' : 'none'))
+        .attr('stroke-width', isActive ? 1.5 : (node.data.isNonPublic ? 1 : 0))
+        .attr('stroke-dasharray', node.data.isNonPublic ? '3,2' : 'none')
+        .attr('rx', 2)
+        .style('cursor', node.data.isNonPublic ? 'default' : 'pointer')
+        .on('mouseover', (event) => {
+          showTip(
+            node.data.isNonPublic
+              ? `<strong>${node.data.name}</strong><br><em style="color:rgba(200,180,80,0.85)">Valeur non divulguée</em>`
+              : `<strong>${node.data.name}</strong><br>${formatEur(node.value)}<br><em style="color:rgba(113,156,175,0.8)">Cliquer pour filtrer cette société</em>`,
+            event);
+        })
+        .on('mousemove', moveTip)
+        .on('mouseout', () => hideTip())
+        .on('click', () => { if (!node.data.isNonPublic) selectSocieteFromChart(node.data.name); });
+
+      if (nw > 40 && nh > 14) {
+        const maxChars = Math.max(3, Math.floor(nw / 6.5));
+        const nameLabel = node.data.name.length > maxChars
+          ? node.data.name.slice(0, maxChars - 1) + '…'
+          : node.data.name;
+        svg.append('text')
+          .attr('x', node.x0 + 4).attr('y', node.y0 + 12)
+          .text(nameLabel)
+          .attr('fill', 'white').attr('font-size', '9px').attr('font-weight', '500')
+          .style('pointer-events', 'none');
+        if (nh > 26 && !node.data.isNonPublic) {
+          svg.append('text')
+            .attr('x', node.x0 + 4).attr('y', node.y0 + 24)
+            .text(formatEur(node.value))
+            .attr('fill', 'rgba(255,255,255,0.65)').attr('font-size', '8px').attr('font-weight', '300')
+            .style('pointer-events', 'none');
+        }
+      }
+    });
+    svg.transition().duration(320).ease(d3.easeCubicOut).style('opacity', 1);
+    return;
+  }
+
+  // ── Mode global / groupe : treemap groupes → députés ─────────────────────
+  if (sub) sub.textContent = 'Surface proportionnelle à la valeur · couleur = groupe · cliquer sur un groupe ou un député pour filtrer';
+
+  const H = Math.round(W * 0.62);
+
+  const raw = buildSunburstData();
+  if (!raw.children || !raw.children.length) return;
+
+  const root = d3.hierarchy(raw)
+    .sum(d => d.value || 0)
+    .sort((a, b) => b.value - a.value);
+
+  d3.treemap()
+    .size([W, H])
+    .paddingOuter(4)
+    .paddingTop(20)
+    .paddingInner(2)
+    .round(true)(root);
+
+  const svg = d3.select(wrap).append('svg')
+    .attr('width', W).attr('height', H)
+    .style('font-family', 'Inter, Arial, sans-serif')
+    .style('opacity', 0);
+
+  (root.children || []).forEach(gNode => {
+    const clr = gNode.data.couleur || gColor(gNode.data.name);
+    const gw = gNode.x1 - gNode.x0;
+    const gh = gNode.y1 - gNode.y0;
+
+    // Fond du groupe
+    svg.append('rect')
+      .attr('x', gNode.x0).attr('y', gNode.y0)
+      .attr('width', gw).attr('height', gh)
+      .attr('fill', clr).attr('opacity', 0.12)
+      .attr('rx', 3);
+
+    // Bordure du groupe (cliquable)
+    svg.append('rect')
+      .attr('x', gNode.x0).attr('y', gNode.y0)
+      .attr('width', gw).attr('height', gh)
+      .attr('fill', 'none')
+      .attr('stroke', clr).attr('stroke-width', 1.5)
+      .attr('rx', 3)
+      .style('cursor', 'pointer')
+      .on('click', () => setFilter(gNode.data.name));
+
+    // Label du groupe
+    if (gh > 18) {
+      const label = shortGroupe(gNode.data.name);
+      svg.append('text')
+        .attr('x', gNode.x0 + 5).attr('y', gNode.y0 + 14)
+        .text(gw > label.length * 6.5 ? label : label.slice(0, Math.max(3, Math.floor(gw / 7))))
+        .attr('fill', clr)
+        .attr('font-size', '10px').attr('font-weight', '700')
+        .style('pointer-events', 'none');
+    }
+
+    // Cellules des députés
+    (gNode.children || []).forEach(dNode => {
+      const dw = Math.max(0, dNode.x1 - dNode.x0);
+      const dh = Math.max(0, dNode.y1 - dNode.y0);
+      const dep = allData.find(d => d.url === dNode.data.url);
+
+      svg.append('rect')
+        .attr('x', dNode.x0).attr('y', dNode.y0)
+        .attr('width', dw).attr('height', dh)
+        .attr('fill', clr).attr('opacity', 0.72)
+        .attr('rx', 2)
+        .style('cursor', 'pointer')
+        .on('mouseover', (event) => {
+          const val = dNode.data.rawValue || 0;
+          const groupeName = gNode.data.name || 'Inconnu';
+          const groupIsActive = activeGroupe === groupeName
+            || (excludedGroupes.size > 0 && !excludedGroupes.has(groupeName));
+          const hint = groupIsActive
+            ? `<em style="color:rgba(113,156,175,0.8)">Cliquer pour filtrer ce député</em>`
+            : `<em style="color:rgba(113,156,175,0.8)">Cliquer pour filtrer ${shortGroupe(groupeName)}</em>`;
+          showTip(`<strong>${dNode.data.name}</strong><br>${shortGroupe(groupeName)}<br>${formatEur(val)}<br>${hint}`, event);
+        })
+        .on('mousemove', moveTip)
+        .on('mouseout', () => hideTip())
+        .on('click', () => {
+          if (!dep) return;
+          // 1er clic → sélectionne le groupe ; 2e clic (groupe déjà actif) → zoom député
+          const groupeName = gNode.data.name || 'Inconnu';
+          const groupIsActive = activeGroupe === groupeName
+            || (excludedGroupes.size > 0 && !excludedGroupes.has(groupeName));
+          if (groupIsActive) {
+            setDeputeFilter(dep);
+          } else {
+            setFilter(groupeName);
+          }
+        });
+
+      // Prénom abrégé + Nom si assez de place
+      if (dw > 32 && dh > 13) {
+        const parts = dNode.data.name.split(' ');
+        const lastName = parts[parts.length - 1];
+        const label = dw > (lastName.length * 6.2 + 6) ? lastName
+          : lastName.slice(0, Math.max(2, Math.floor((dw - 6) / 6.2)));
+        svg.append('text')
+          .attr('x', dNode.x0 + 3).attr('y', dNode.y0 + 11)
+          .text(label)
+          .attr('fill', 'white').attr('font-size', '9px').attr('font-weight', '500')
+          .style('pointer-events', 'none');
+      }
+    });
+  });
+  svg.transition().duration(320).ease(d3.easeCubicOut).style('opacity', 1);
+}
+
+window.buildTreemap = buildTreemap;
 
 // Restaurer le thème sauvegardé
 try {
