@@ -139,6 +139,40 @@ header::after {
   font-weight: 300;
 }
 
+/* ── Toggle dataset Députés / Sénateurs ──────────────────────────────────── */
+.dataset-toggle {
+  display: flex;
+  gap: 0;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 20px;
+  padding: 2px;
+}
+
+.dataset-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-family: 'Inter', sans-serif;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  padding: 4px 13px;
+  cursor: pointer;
+  border-radius: 18px;
+  transition: all 0.18s ease;
+  white-space: nowrap;
+}
+.dataset-btn:hover {
+  color: var(--text);
+  background: var(--surface3);
+}
+.dataset-btn.active {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
 /* ── Toggle thème ─────────────────────────────────────────────────────────── */
 #theme-toggle {
   background: var(--surface2);

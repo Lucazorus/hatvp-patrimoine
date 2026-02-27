@@ -22,7 +22,7 @@
   <meta name="twitter:description" content="Outils de visualisation des participations financières et intérêts déclarés par les 547 députés de l'Assemblée Nationale">
 
   <!-- Styles -->
-  <link rel="stylesheet" href="style.css?v=5">
+  <link rel="stylesheet" href="style.css?v=6">
 
   <!-- D3.js + Sankey plugin -->
   <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
@@ -30,6 +30,7 @@
 
   <!-- Données embarquées (générées par fetch_data.py) -->
   <script src="data.js"></script>
+  <script src="data_senateurs.js" onerror="window.HATVP_DATA_SENATEURS=null"></script>
 
 </head>
 <body>
@@ -37,9 +38,13 @@
 <header>
   <div class="header-brand">
     <h1>Open Mandats</h1>
-    <p>Outils de visualisation des participations financières et intérêts déclarés par les 547 députés de l'Assemblée Nationale · Source : <a href="https://www.hatvp.fr/consulter-les-declarations/#open-data" target="_blank" rel="noopener">hatvp.fr</a></p>
+    <p id="header-desc">Participations financières et intérêts déclarés · Source : <a href="https://www.hatvp.fr/consulter-les-declarations/#open-data" target="_blank" rel="noopener">hatvp.fr</a></p>
   </div>
   <div class="header-right">
+    <div class="dataset-toggle">
+      <button class="dataset-btn active" data-ds="deputes" onclick="switchDataset('deputes',this)">Députés</button>
+      <button class="dataset-btn" data-ds="senateurs" onclick="switchDataset('senateurs',this)">Sénateurs</button>
+    </div>
     <button id="theme-toggle" onclick="toggleTheme()" title="Basculer mode clair / sombre">Mode clair</button>
   </div>
 </header>
@@ -196,7 +201,7 @@
 <div id="tooltip" role="tooltip" aria-hidden="true"></div>
 
 <!-- App -->
-<script src="app.js?v=9" defer></script>
+<script src="app.js?v=10" defer></script>
 <script src="sankey.js?v=7" defer></script>
 
 <!-- Analytics -->

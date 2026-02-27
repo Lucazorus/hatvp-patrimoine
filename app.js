@@ -90,6 +90,7 @@ let excludedGroupes = new Set(); // Set de groupes politiques exclus des graphiq
 let sortKey = 'valeurTotale', sortDir = -1;
 let currentPage = 1;
 const PAGE_SIZE = 30;
+let currentDataset = 'deputes'; // 'deputes' | 'senateurs'
 
 /* ── Couleurs ────────────────────────────────────────────────────────────── */
 const FALLBACK_COLORS = [
@@ -130,19 +131,30 @@ function labelOnColor(hex) {
 /* ── Noms lisibles (sans acronymes) ──────────────────────────────────────── */
 function shortGroupe(g) {
   const map = {
-    'Rassemblement National':                          'Rassemblement National',
-    'Ensemble pour la République':                     'Ensemble',
-    'La France insoumise - Nouveau Front Populaire':   'La France Insoumise',
-    'Socialistes et apparentés':                       'Socialistes',
-    'Droite Républicaine':                             'Droite Républicaine',
-    'Écologiste et Social':                            'Écologiste et Social',
-    'Les Démocrates':                                  'Les Démocrates',
-    'Horizons & Indépendants':                         'Horizons',
-    'Libertés, Indépendants, Outre-mer et Territoires':'Libertés Outre-mer',
-    'Gauche Démocrate et Républicaine':                'Gauche Démocrate',
-    'Union des droites pour la République':            'Union des droites',
-    'Non inscrit':                                     'Non inscrit',
-    'Inconnu':                                         'Inconnu',
+    // Assemblée Nationale
+    'Rassemblement National':                           'Rassemblement National',
+    'Ensemble pour la République':                      'Ensemble',
+    'La France insoumise - Nouveau Front Populaire':    'La France Insoumise',
+    'Socialistes et apparentés':                        'Socialistes',
+    'Droite Républicaine':                              'Droite Républicaine',
+    'Écologiste et Social':                             'Écologiste et Social',
+    'Les Démocrates':                                   'Les Démocrates',
+    'Horizons & Indépendants':                          'Horizons',
+    'Libertés, Indépendants, Outre-mer et Territoires': 'Libertés Outre-mer',
+    'Gauche Démocrate et Républicaine':                 'Gauche Démocrate',
+    'Union des droites pour la République':             'Union des droites',
+    // Sénat
+    'Les Républicains':                                                'Les Républicains',
+    'Rassemblement des démocrates progressistes et indépendants':      'RDPI',
+    'Socialistes, Écologistes et Républicains':                        'SER',
+    'Union Centriste':                                                  'UC',
+    'Les Indépendants - République et Territoires':                    'Les Indépendants',
+    'Écologiste - Solidarité et Territoires':                          'Écologistes',
+    'Communiste Républicain Citoyen et Écologiste - Kanaky':           'CRCE-K',
+    'Rassemblement Démocratique et Social Européen':                   'RDSE',
+    // Commun
+    'Non inscrit':  'Non inscrit',
+    'Inconnu':      'Inconnu',
   };
   return map[g] || g;
 }
@@ -176,12 +188,13 @@ function updateKpis() {
   document.getElementById('stat-moyenne').textContent = formatEur(moyenne);
   document.getElementById('stat-mediane').textContent = formatEur(med);
 
-  // Label du compteur adapté au filtre
+  // Label du compteur adapté au filtre et au dataset
   const labelEl = document.getElementById('stat-deputes-label');
   if (labelEl) {
-    labelEl.textContent = activeDepute ? 'Député sélectionné'
-      : activeGroupe ? `Députés — ${shortGroupe(activeGroupe)}`
-      : 'Députés avec DIA publiée';
+    const word = currentDataset === 'senateurs' ? 'Sénateur' : 'Député';
+    labelEl.textContent = activeDepute ? `${word} sélectionné`
+      : activeGroupe ? `${word}s — ${shortGroupe(activeGroupe)}`
+      : `${word}s avec DIA publiée`;
   }
 }
 
@@ -1746,6 +1759,7 @@ function main() {
   allData.forEach(d => { if (_GROUPE_OVERRIDES[d.url]) d.groupe = _GROUPE_OVERRIDES[d.url]; });
 
   buildColorMap(allData);
+  updateHeaderDesc();
   buildGroupeBtns();
 
   const avecPart = allData.filter(d => d.nbParts > 0).length;
@@ -1869,6 +1883,71 @@ function switchExplorerView(view, btn) {
   }
 }
 window.switchExplorerView = switchExplorerView;
+
+/* ── Changement de dataset (Députés ↔ Sénateurs) ────────────────────────── */
+function updateHeaderDesc() {
+  const el = document.getElementById('header-desc');
+  if (!el) return;
+  const n    = allData.length;
+  const who  = currentDataset === 'senateurs' ? `${n} sénateurs du Sénat` : `${n} députés de l'Assemblée Nationale`;
+  el.innerHTML = `Participations financières et intérêts déclarés par les ${who} · Source : <a href="https://www.hatvp.fr/consulter-les-declarations/#open-data" target="_blank" rel="noopener">hatvp.fr</a>`;
+}
+
+function switchDataset(ds, btn) {
+  if (ds === currentDataset) return;
+
+  const raw = ds === 'senateurs' ? window.HATVP_DATA_SENATEURS : window.HATVP_DATA;
+  if (!raw || !raw.length) {
+    alert(ds === 'senateurs'
+      ? 'Données sénateurs non disponibles — lancez fetch_data.py pour les générer.'
+      : 'Données députés non disponibles.');
+    return;
+  }
+
+  currentDataset = ds;
+
+  // Reset tous les filtres
+  activeGroupe  = null;
+  activeDepute  = null;
+  activeSocietes = new Set();
+  excludedGroupes = new Set();
+  sortKey = 'valeurTotale'; sortDir = -1;
+  currentPage = 1;
+
+  // Reset couleurs (groupes différents entre AN et Sénat)
+  for (const k in groupColorMap) delete groupColorMap[k];
+  for (const k in _groupColorCache) delete _groupColorCache[k];
+  _colorIdx = 0;
+
+  // Reset état explorer
+  _sunburstHier   = null;
+  _sunburstG      = null;
+  _sunburstZoomed = null;
+  _sankeyBuilt    = false;
+  _currentExplorerView = 'sunburst';
+  // Remettre le bouton Sunburst actif dans le toggle
+  document.querySelectorAll('.explorer-btn').forEach((b, i) => b.classList.toggle('active', i === 0));
+
+  // Reconstruire allData
+  allData = raw.map(d => ({
+    ...d,
+    groupe: decodeHtml(d.groupe || ''),
+    participations: d.participations.map(p => ({ ...p, societe: (p.societe || '').replace(/\s+/g, ' ').trim() })),
+    nbParts: d.participations.length,
+    valeurTotale: d.participations.reduce((s, p) => s + (p.evaluation || 0), 0),
+  }));
+
+  buildColorMap(allData);
+
+  // Mettre à jour les boutons dataset
+  document.querySelectorAll('.dataset-btn').forEach(b => b.classList.toggle('active', b.dataset.ds === ds));
+
+  updateHeaderDesc();
+  buildGroupeBtns();
+  updateKpis();
+  clearFilter(); // reconstruit tous les charts
+}
+window.switchDataset = switchDataset;
 
 /* ── Treemap ─────────────────────────────────────────────────────────────── */
 function buildTreemap() {
