@@ -117,7 +117,9 @@ function buildColorMap(data) {
 function gColor(g) { return groupColorMap[g] || groupeColor(g, ''); }
 
 /* Retourne '#fff' ou une couleur sombre selon la luminance du fond — pour les labels sur arcs/cellules */
+/* Mode sombre : toujours blanc. Mode clair : calcul luminance. */
 function labelOnColor(hex) {
+  if (!isLight()) return '#fff';
   const c = d3.color(hex);
   if (!c) return '#fff';
   const toL = v => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4); };
