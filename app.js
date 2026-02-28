@@ -42,9 +42,11 @@ function isStructurePrivee(name) {
   return PRIVATE_STRUCT_RE.test(name);
 }
 
-// Filtre les participations non publiées
+// Filtre les participations selon le mode actif
+// En mode bourse : exclut les structures privées (SCI, SARL, SAS…) et les "non publiées"
 function filterParticipations(parts) {
-  return parts;
+  if (!onlyBourse) return parts;
+  return parts.filter(p => !isNonPublic(p.societe) && !isStructurePrivee(p.societe));
 }
 
 function decodeHtml(str) {
@@ -91,6 +93,7 @@ let sortKey = 'valeurTotale', sortDir = -1;
 let currentPage = 1;
 const PAGE_SIZE = 30;
 let currentDataset = 'deputes'; // 'deputes' | 'senateurs'
+let onlyBourse = false;         // filtre "cotées en bourse uniquement"
 
 /* ── Couleurs ────────────────────────────────────────────────────────────── */
 const FALLBACK_COLORS = [
@@ -297,6 +300,15 @@ function buildGroupeBtns() {
   if (!bar) return;
   bar.innerHTML = '';
 
+  // Bouton "Cotées en bourse" — toujours en tête de barre
+  const bourseBtn = document.createElement('button');
+  bourseBtn.id = 'bourse-btn';
+  bourseBtn.className = 'bourse-btn' + (onlyBourse ? ' active' : '');
+  bourseBtn.textContent = '📈 Cotées en bourse';
+  bourseBtn.title = 'Afficher uniquement les participations potentiellement cotées en bourse (exclut SCI, SARL, SAS, structures familiales…)';
+  bourseBtn.addEventListener('click', toggleBourse);
+  bar.appendChild(bourseBtn);
+
   // Groupes triés par valeur totale décroissante, avec couleur
   const byG = aggregateByGroupe(allData).sort((a, b) => b.valeur - a.valeur);
 
@@ -328,6 +340,8 @@ function updateGroupeBtns() {
   document.querySelectorAll('.groupe-btn').forEach(btn => {
     btn.classList.toggle('excluded', excludedGroupes.has(btn.dataset.groupe));
   });
+  const bourseBtn = document.getElementById('bourse-btn');
+  if (bourseBtn) bourseBtn.classList.toggle('active', onlyBourse);
   const clearBtn = document.getElementById('groupe-clear-btn');
   if (clearBtn) {
     const anyFilter = excludedGroupes.size > 0 || !!activeDepute || activeSocietes.size > 0;
@@ -460,6 +474,10 @@ function clearFilter() {
   activeDepute = null;
   activeSocietes = new Set();
   excludedGroupes = new Set();
+  // Réinitialise aussi le filtre bourse
+  onlyBourse = false;
+  const bourseBtn = document.getElementById('bourse-btn');
+  if (bourseBtn) bourseBtn.classList.remove('active');
   updateGroupeBtns();
   socPickerClearAll(false);
   updateKpis();
@@ -473,6 +491,22 @@ function clearFilter() {
   currentPage = 1;
   applyTableFilters();
 }
+
+function toggleBourse() {
+  onlyBourse = !onlyBourse;
+  const btn = document.getElementById('bourse-btn');
+  if (btn) btn.classList.toggle('active', onlyBourse);
+  // Rebuild complet : KPIs, barres, explorer, table
+  updateKpis();
+  updateChartTitles();
+  const fg = filteredForCharts();
+  buildBarValeurGroupe('bar-valeur-groupe-wrap', fg);
+  buildBarSocietesStacked('bar-societes-wrap');
+  rebuildExplorer();
+  currentPage = 1;
+  applyTableFilters();
+}
+window.toggleBourse = toggleBourse;
 
 /* ══════════════════════════════════════════════════════════════════════════
    SUNBURST DATA
